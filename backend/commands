@@ -1,0 +1,15 @@
+⏺ # Kill existing servers
+  lsof -ti:3001 | xargs kill 2>/dev/null; lsof -ti:5173 | xargs kill 2>/dev/null
+
+  # Start both
+  cd /Users/domienfovel/Documents/Dashboard && npm run dev
+
+  Or if concurrently gives issues, run in two separate terminals:
+
+  # Terminal 1
+  cd /Users/domienfovel/Documents/Dashboard && npm run dev:backend
+
+  # Terminal 2
+  cd /Users/domienfovel/Documents/Dashboard && npm run dev:frontend
+
+  

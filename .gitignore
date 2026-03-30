@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+backend/uploads/*
+!backend/uploads/.gitkeep
+frontend/dist
+.DS_Store
+/tmp
+*.tar.gz
+*.csv
+Dev info*/
+PLAN.md
