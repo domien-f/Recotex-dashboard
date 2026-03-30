@@ -66,25 +66,6 @@ export function Header() {
     logout();
   };
 
-  // Navigate: shift the entire range by 1 month
-  const shiftMonth = (dir: number) => {
-    const from = new Date(dateFrom + "T12:00:00");
-    const to = new Date(dateTo + "T12:00:00");
-    from.setMonth(from.getMonth() + dir);
-    to.setMonth(to.getMonth() + dir);
-    const newFrom = new Date(from.getFullYear(), from.getMonth(), 1);
-    const newTo = new Date(to.getFullYear(), to.getMonth() + 1, 0);
-    setDateRange(toLocalDateStr(newFrom), toLocalDateStr(newTo));
-  };
-
-  // Click on label = select just that 1 month (reset to single month)
-  const selectSingleMonth = () => {
-    const from = new Date(dateFrom + "T12:00:00");
-    const start = new Date(from.getFullYear(), from.getMonth(), 1);
-    const end = new Date(from.getFullYear(), from.getMonth() + 1, 0);
-    setDateRange(toLocalDateStr(start), toLocalDateStr(end));
-  };
-
   const fromDate = new Date(dateFrom + "T12:00:00");
   const toDate = new Date(dateTo + "T12:00:00");
   const sameMonth = fromDate.getMonth() === toDate.getMonth() && fromDate.getFullYear() === toDate.getFullYear();
