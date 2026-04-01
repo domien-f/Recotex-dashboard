@@ -12,7 +12,7 @@ export function getAuthUrl(): string {
   const params = new URLSearchParams({
     client_id: APP_ID,
     redirect_uri: REDIRECT_URI,
-    scope: "ads_read,ads_management",
+    config_id: process.env.FACEBOOK_CONFIG_ID || "1250742467194906",
     response_type: "code",
   });
   return `https://www.facebook.com/v21.0/dialog/oauth?${params}`;

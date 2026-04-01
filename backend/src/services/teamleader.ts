@@ -67,6 +67,7 @@ async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): 
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
     });
     if (res.status === 429) {
       console.log(`[TL] Rate limited on ${endpoint}, retrying...`);
@@ -156,8 +157,10 @@ export async function syncAll(prisma: PrismaClient) {
     if (deals.length === 0) break;
     console.log(`[TL] Page ${page}: ${deals.length} deals`);
 
-    for (const deal of deals) {
+    for (let i = 0; i < deals.length; i++) {
+      const deal = deals[i];
       try {
+        if ((i + 1) % 10 === 0) console.log(`[TL] Processing deal ${i + 1}/${deals.length} on page ${page}`);
         // Get deal info for custom fields
         const info = await tlFetch(prisma, "deals.info", { id: deal.id });
         const d = info.data;
@@ -185,7 +188,9 @@ export async function syncAll(prisma: PrismaClient) {
             contactName = [c.first_name, c.last_name].filter(Boolean).join(" ") || null;
             contactEmail = c.emails?.[0]?.email || null;
             contactPhone = c.telephones?.[0]?.number || null;
-          } catch {}
+          } catch (e: any) {
+            console.warn(`[TL] Failed to fetch contact ${contactId}: ${e.message}`);
+          }
         }
 
         // Upsert contact
@@ -269,7 +274,9 @@ export async function syncAll(prisma: PrismaClient) {
           update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
         });
         eventsSynced++;
-      } catch {}
+      } catch (e: any) {
+        console.warn(`[TL] Failed to upsert appointment ${event.id}: ${e.message}`);
+      }
     }
 
     if (events.length < 100) break;
