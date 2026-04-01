@@ -62,7 +62,7 @@ async function getToken(prisma: PrismaClient): Promise<string> {
 
 async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): Promise<any> {
   let token = await getToken(prisma);
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     const res = await fetch(`${TL_API}/${endpoint}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -70,8 +70,9 @@ async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): 
       signal: AbortSignal.timeout(30000),
     });
     if (res.status === 429) {
-      console.log(`[TL] Rate limited on ${endpoint}, waiting before retry (attempt ${attempt + 1}/5)...`);
-      await sleep(Math.pow(2, attempt + 1) * 2000);
+      const waitTime = Math.min(Math.pow(2, attempt + 1) * 2000, 120000);
+      console.log(`[TL] Rate limited on ${endpoint}, waiting ${waitTime / 1000}s (attempt ${attempt + 1}/10)...`);
+      await sleep(waitTime);
       continue;
     }
     if (res.status === 401 && attempt === 0) {
@@ -102,7 +103,7 @@ async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): 
     await sleep(150);
     return res.json();
   }
-  throw new Error(`Rate limit exceeded on ${endpoint}`);
+  throw new Error(`Rate limit exceeded on ${endpoint} after 10 retries`);
 }
 
 // ─── Status mapping ───
@@ -123,103 +124,13 @@ function extractName(title: string): string {
   return parts.length >= 2 ? parts[0].replace(/^\d+[\/.]\s*\d*[\/.]*\s*/, "").trim() : title;
 }
 
-// ─── Batch helper ───
-
-async function processBatch<T>(items: T[], batchSize: number, fn: (item: T) => Promise<void>) {
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    await Promise.allSettled(batch.map(fn));
-  }
-}
-
-// ─── Process a single deal ───
-
-async function processDeal(
-  prisma: PrismaClient,
-  deal: any,
-  phases: Record<string, { name: string; probability: number }>,
-): Promise<boolean> {
-  const info = await tlFetch(prisma, "deals.info", { id: deal.id });
-  const d = info.data;
-  const cfs = d.custom_fields || [];
-
-  const herkomst = cfs.find((f: any) => f.definition.id === HERKOMST_CF)?.value || null;
-  const reclamatieRedenen = cfs.find((f: any) => f.definition.id === RECLAMATIE_CF)?.value || [];
-  const typeWerken = cfs.find((f: any) => f.definition.id === TYPE_WERKEN_CF)?.value || null;
-
-  const phase = phases[d.current_phase?.id] || { name: "Unknown", probability: 0 };
-  const status = mapStatus(phase.name, d.status, d.estimated_probability ?? phase.probability);
-  const revenue = d.estimated_value?.amount || 0;
-  const name = extractName(d.title || "");
-
-  let contactEmail: string | null = null;
-  let contactPhone: string | null = null;
-  let contactName: string | null = null;
-  const contactId = d.lead?.customer?.type === "contact" ? d.lead?.customer?.id : null;
-
-  if (contactId) {
-    try {
-      const contact = await tlFetch(prisma, "contacts.info", { id: contactId });
-      const c = contact.data;
-      contactName = [c.first_name, c.last_name].filter(Boolean).join(" ") || null;
-      contactEmail = c.emails?.[0]?.email || null;
-      contactPhone = c.telephones?.[0]?.number || null;
-    } catch (e: any) {
-      console.warn(`[TL] Failed to fetch contact ${contactId}: ${e.message}`);
-    }
-  }
-
-  // Upsert contact
-  let dbContactId: string;
-  if (contactEmail) {
-    const existing = await prisma.contact.findUnique({ where: { email: contactEmail } });
-    if (existing) {
-      dbContactId = existing.id;
-      await prisma.contact.update({ where: { id: existing.id }, data: { phone: contactPhone || undefined, name: contactName || undefined } });
-    } else {
-      const created = await prisma.contact.create({ data: { email: contactEmail, phone: contactPhone, name: contactName || name } });
-      dbContactId = created.id;
-    }
-  } else {
-    const created = await prisma.contact.create({ data: { name: contactName || name, phone: contactPhone } });
-    dbContactId = created.id;
-  }
-
-  // Upsert deal
-  const dealData = {
-    contactId: dbContactId,
-    title: d.title || name,
-    phase: phase.name,
-    status,
-    herkomst,
-    typeWerken,
-    reclamatieRedenen: Array.isArray(reclamatieRedenen) ? reclamatieRedenen : [],
-    verantwoordelijke: null as string | null,
-    revenue: status === "WON" && revenue > 0 ? revenue : null,
-    probability: d.estimated_probability ?? phase.probability,
-    wonAt: status === "WON" && d.closed_at ? new Date(d.closed_at) : null,
-    dealCreatedAt: new Date(d.created_at),
-  };
-
-  if (deal.id) {
-    const existing = await prisma.deal.findUnique({ where: { teamleaderId: deal.id } });
-    if (existing) {
-      await prisma.deal.update({ where: { teamleaderId: deal.id }, data: dealData });
-    } else {
-      await prisma.deal.create({ data: { ...dealData, teamleaderId: deal.id } });
-    }
-  }
-
-  return true;
-}
-
 // ─── Sync ───
 
 export async function syncAll(prisma: PrismaClient) {
   const startTime = Date.now();
-  console.log("[TL] Starting incremental sync...");
+  console.log("[TL] Starting full sync...");
 
-  // Get latest deal date in our DB
+  // Get latest deal date in our DB for incremental sync
   const latest = await prisma.deal.aggregate({ _max: { dealCreatedAt: true } });
   const sinceRaw = latest._max.dealCreatedAt
     ? new Date(latest._max.dealCreatedAt.getTime() - 24 * 60 * 60 * 1000)
@@ -232,14 +143,14 @@ export async function syncAll(prisma: PrismaClient) {
   const phasesRes = await tlFetch(prisma, "dealPhases.list", {});
   const phases: Record<string, { name: string; probability: number }> = {};
   for (const p of phasesRes.data || []) phases[p.id] = { name: p.name, probability: p.probability };
+  console.log(`[TL] Loaded ${Object.keys(phases).length} deal phases`);
 
-  // Fetch and process deals sequentially (Teamleader rate limit: ~100 req/min)
+  // ── Step 1: Fetch ALL deal IDs first (lightweight, only list calls) ──
+  const allDeals: any[] = [];
   let page = 1;
-  let synced = 0;
-  let errors = 0;
-  const BATCH_SIZE = 2;
 
   while (true) {
+    console.log(`[TL] Fetching deal list page ${page}...`);
     const res = await tlFetch(prisma, "deals.list", {
       filter: { created_after: sinceDate, pipeline_id: SALES_PIPELINE },
       page: { size: 100, number: page },
@@ -247,31 +158,116 @@ export async function syncAll(prisma: PrismaClient) {
 
     const deals = res.data || [];
     if (deals.length === 0) break;
-    console.log(`[TL] Page ${page}: ${deals.length} deals (processing in batches of ${BATCH_SIZE})`);
-
-    for (let i = 0; i < deals.length; i += BATCH_SIZE) {
-      const batch = deals.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map((deal: any) => processDeal(prisma, deal, phases))
-      );
-
-      for (const r of results) {
-        if (r.status === "fulfilled") synced++;
-        else {
-          errors++;
-          if (errors <= 5) console.error(`[TL] Deal error: ${r.reason?.message}`);
-        }
-      }
-
-      console.log(`[TL] Page ${page}: ${Math.min(i + BATCH_SIZE, deals.length)}/${deals.length} done (${synced} synced, ${errors} errors)`);
-      await sleep(1000); // 1s pause between batches to avoid rate limits
-    }
+    allDeals.push(...deals);
+    console.log(`[TL] Got ${deals.length} deals on page ${page} (total so far: ${allDeals.length})`);
 
     if (deals.length < 100) break;
     page++;
+    await sleep(500);
   }
 
-  // Sync events/appointments in batches
+  console.log(`[TL] Total deals to process: ${allDeals.length}`);
+
+  // ── Step 2: Process each deal one by one with proper pacing ──
+  let synced = 0;
+  let errors = 0;
+
+  for (let i = 0; i < allDeals.length; i++) {
+    const deal = allDeals[i];
+    try {
+      // Fetch deal details
+      const info = await tlFetch(prisma, "deals.info", { id: deal.id });
+      const d = info.data;
+      const cfs = d.custom_fields || [];
+
+      const herkomst = cfs.find((f: any) => f.definition.id === HERKOMST_CF)?.value || null;
+      const reclamatieRedenen = cfs.find((f: any) => f.definition.id === RECLAMATIE_CF)?.value || [];
+      const typeWerken = cfs.find((f: any) => f.definition.id === TYPE_WERKEN_CF)?.value || null;
+
+      const phase = phases[d.current_phase?.id] || { name: "Unknown", probability: 0 };
+      const status = mapStatus(phase.name, d.status, d.estimated_probability ?? phase.probability);
+      const revenue = d.estimated_value?.amount || 0;
+      const name = extractName(d.title || "");
+
+      // Fetch contact info
+      let contactEmail: string | null = null;
+      let contactPhone: string | null = null;
+      let contactName: string | null = null;
+      const contactId = d.lead?.customer?.type === "contact" ? d.lead?.customer?.id : null;
+
+      if (contactId) {
+        try {
+          const contact = await tlFetch(prisma, "contacts.info", { id: contactId });
+          const c = contact.data;
+          contactName = [c.first_name, c.last_name].filter(Boolean).join(" ") || null;
+          contactEmail = c.emails?.[0]?.email || null;
+          contactPhone = c.telephones?.[0]?.number || null;
+        } catch (e: any) {
+          console.warn(`[TL] Failed to fetch contact ${contactId}: ${e.message}`);
+        }
+      }
+
+      // Upsert contact
+      let dbContactId: string;
+      if (contactEmail) {
+        const existing = await prisma.contact.findUnique({ where: { email: contactEmail } });
+        if (existing) {
+          dbContactId = existing.id;
+          await prisma.contact.update({ where: { id: existing.id }, data: { phone: contactPhone || undefined, name: contactName || undefined } });
+        } else {
+          const created = await prisma.contact.create({ data: { email: contactEmail, phone: contactPhone, name: contactName || name } });
+          dbContactId = created.id;
+        }
+      } else {
+        const created = await prisma.contact.create({ data: { name: contactName || name, phone: contactPhone } });
+        dbContactId = created.id;
+      }
+
+      // Upsert deal
+      const dealData = {
+        contactId: dbContactId,
+        title: d.title || name,
+        phase: phase.name,
+        status,
+        herkomst,
+        typeWerken,
+        reclamatieRedenen: Array.isArray(reclamatieRedenen) ? reclamatieRedenen : [],
+        verantwoordelijke: null as string | null,
+        revenue: status === "WON" && revenue > 0 ? revenue : null,
+        probability: d.estimated_probability ?? phase.probability,
+        wonAt: status === "WON" && d.closed_at ? new Date(d.closed_at) : null,
+        dealCreatedAt: new Date(d.created_at),
+      };
+
+      const existing = await prisma.deal.findUnique({ where: { teamleaderId: deal.id } });
+      if (existing) {
+        await prisma.deal.update({ where: { teamleaderId: deal.id }, data: dealData });
+      } else {
+        await prisma.deal.create({ data: { ...dealData, teamleaderId: deal.id } });
+      }
+
+      synced++;
+
+      // Log progress every 25 deals
+      if (synced % 25 === 0) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+        console.log(`[TL] Progress: ${synced}/${allDeals.length} deals synced (${errors} errors, ${elapsed}s elapsed)`);
+      }
+
+      // Pace: ~2 API calls per deal + 600ms pause = ~40 calls/min (well under 100/min limit)
+      await sleep(600);
+
+    } catch (e: any) {
+      errors++;
+      console.error(`[TL] Error syncing deal ${deal.id} (${i + 1}/${allDeals.length}): ${e.message}`);
+      // Don't stop on individual errors, keep going
+      await sleep(2000); // Extra pause after error
+    }
+  }
+
+  console.log(`[TL] Deals done: ${synced} synced, ${errors} errors`);
+
+  // ── Step 3: Sync events/appointments ──
   console.log("[TL] Syncing events...");
   let eventsSynced = 0;
   let eventsPage = 1;
@@ -286,31 +282,31 @@ export async function syncAll(prisma: PrismaClient) {
     if (events.length === 0) break;
     console.log(`[TL] Events page ${eventsPage}: ${events.length} events`);
 
-    for (let i = 0; i < events.length; i += BATCH_SIZE) {
-      const batch = events.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(
-        batch.map(async (event: any) => {
-          const dealLink = (event.links || []).find((l: any) => l.type === "deal");
-          if (!dealLink) return;
+    for (const event of events) {
+      const dealLink = (event.links || []).find((l: any) => l.type === "deal");
+      if (!dealLink) continue;
 
-          const deal = await prisma.deal.findUnique({ where: { teamleaderId: dealLink.id }, select: { id: true, herkomst: true, dealCreatedAt: true } });
-          if (!deal) return;
+      const deal = await prisma.deal.findUnique({ where: { teamleaderId: dealLink.id }, select: { id: true, herkomst: true, dealCreatedAt: true } });
+      if (!deal) continue;
 
-          await prisma.appointment.upsert({
-            where: { teamleaderId: event.id },
-            create: { teamleaderId: event.id, dealId: deal.id, date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
-            update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
-          });
-          eventsSynced++;
-        })
-      );
+      try {
+        await prisma.appointment.upsert({
+          where: { teamleaderId: event.id },
+          create: { teamleaderId: event.id, dealId: deal.id, date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
+          update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
+        });
+        eventsSynced++;
+      } catch (e: any) {
+        console.warn(`[TL] Failed to upsert appointment ${event.id}: ${e.message}`);
+      }
     }
 
     if (events.length < 100) break;
     eventsPage++;
+    await sleep(500);
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[TL] Sync done in ${elapsed}s: ${synced} deals, ${eventsSynced} events, ${errors} errors`);
+  console.log(`[TL] ✓ Sync complete in ${elapsed}s: ${synced} deals, ${eventsSynced} events, ${errors} errors`);
   return { synced, events: eventsSynced, errors };
 }
