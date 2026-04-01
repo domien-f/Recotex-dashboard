@@ -123,9 +123,100 @@ function extractName(title: string): string {
   return parts.length >= 2 ? parts[0].replace(/^\d+[\/.]\s*\d*[\/.]*\s*/, "").trim() : title;
 }
 
+// ─── Batch helper ───
+
+async function processBatch<T>(items: T[], batchSize: number, fn: (item: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.allSettled(batch.map(fn));
+  }
+}
+
+// ─── Process a single deal ───
+
+async function processDeal(
+  prisma: PrismaClient,
+  deal: any,
+  phases: Record<string, { name: string; probability: number }>,
+): Promise<boolean> {
+  const info = await tlFetch(prisma, "deals.info", { id: deal.id });
+  const d = info.data;
+  const cfs = d.custom_fields || [];
+
+  const herkomst = cfs.find((f: any) => f.definition.id === HERKOMST_CF)?.value || null;
+  const reclamatieRedenen = cfs.find((f: any) => f.definition.id === RECLAMATIE_CF)?.value || [];
+  const typeWerken = cfs.find((f: any) => f.definition.id === TYPE_WERKEN_CF)?.value || null;
+
+  const phase = phases[d.current_phase?.id] || { name: "Unknown", probability: 0 };
+  const status = mapStatus(phase.name, d.status, d.estimated_probability ?? phase.probability);
+  const revenue = d.estimated_value?.amount || 0;
+  const name = extractName(d.title || "");
+
+  let contactEmail: string | null = null;
+  let contactPhone: string | null = null;
+  let contactName: string | null = null;
+  const contactId = d.lead?.customer?.type === "contact" ? d.lead?.customer?.id : null;
+
+  if (contactId) {
+    try {
+      const contact = await tlFetch(prisma, "contacts.info", { id: contactId });
+      const c = contact.data;
+      contactName = [c.first_name, c.last_name].filter(Boolean).join(" ") || null;
+      contactEmail = c.emails?.[0]?.email || null;
+      contactPhone = c.telephones?.[0]?.number || null;
+    } catch (e: any) {
+      console.warn(`[TL] Failed to fetch contact ${contactId}: ${e.message}`);
+    }
+  }
+
+  // Upsert contact
+  let dbContactId: string;
+  if (contactEmail) {
+    const existing = await prisma.contact.findUnique({ where: { email: contactEmail } });
+    if (existing) {
+      dbContactId = existing.id;
+      await prisma.contact.update({ where: { id: existing.id }, data: { phone: contactPhone || undefined, name: contactName || undefined } });
+    } else {
+      const created = await prisma.contact.create({ data: { email: contactEmail, phone: contactPhone, name: contactName || name } });
+      dbContactId = created.id;
+    }
+  } else {
+    const created = await prisma.contact.create({ data: { name: contactName || name, phone: contactPhone } });
+    dbContactId = created.id;
+  }
+
+  // Upsert deal
+  const dealData = {
+    contactId: dbContactId,
+    title: d.title || name,
+    phase: phase.name,
+    status,
+    herkomst,
+    typeWerken,
+    reclamatieRedenen: Array.isArray(reclamatieRedenen) ? reclamatieRedenen : [],
+    verantwoordelijke: null as string | null,
+    revenue: status === "WON" && revenue > 0 ? revenue : null,
+    probability: d.estimated_probability ?? phase.probability,
+    wonAt: status === "WON" && d.closed_at ? new Date(d.closed_at) : null,
+    dealCreatedAt: new Date(d.created_at),
+  };
+
+  if (deal.id) {
+    const existing = await prisma.deal.findUnique({ where: { teamleaderId: deal.id } });
+    if (existing) {
+      await prisma.deal.update({ where: { teamleaderId: deal.id }, data: dealData });
+    } else {
+      await prisma.deal.create({ data: { ...dealData, teamleaderId: deal.id } });
+    }
+  }
+
+  return true;
+}
+
 // ─── Sync ───
 
 export async function syncAll(prisma: PrismaClient) {
+  const startTime = Date.now();
   console.log("[TL] Starting incremental sync...");
 
   // Get latest deal date in our DB
@@ -137,15 +228,16 @@ export async function syncAll(prisma: PrismaClient) {
 
   console.log(`[TL] Fetching deals since ${sinceDate}`);
 
-  // Load phases and sources
+  // Load phases
   const phasesRes = await tlFetch(prisma, "dealPhases.list", {});
   const phases: Record<string, { name: string; probability: number }> = {};
   for (const p of phasesRes.data || []) phases[p.id] = { name: p.name, probability: p.probability };
 
-  // Fetch deals
+  // Fetch and process deals in batches of 5
   let page = 1;
   let synced = 0;
   let errors = 0;
+  const BATCH_SIZE = 5;
 
   while (true) {
     const res = await tlFetch(prisma, "deals.list", {
@@ -155,97 +247,30 @@ export async function syncAll(prisma: PrismaClient) {
 
     const deals = res.data || [];
     if (deals.length === 0) break;
-    console.log(`[TL] Page ${page}: ${deals.length} deals`);
+    console.log(`[TL] Page ${page}: ${deals.length} deals (processing in batches of ${BATCH_SIZE})`);
 
-    for (let i = 0; i < deals.length; i++) {
-      const deal = deals[i];
-      try {
-        if ((i + 1) % 10 === 0) console.log(`[TL] Processing deal ${i + 1}/${deals.length} on page ${page}`);
-        // Get deal info for custom fields
-        const info = await tlFetch(prisma, "deals.info", { id: deal.id });
-        const d = info.data;
-        const cfs = d.custom_fields || [];
+    for (let i = 0; i < deals.length; i += BATCH_SIZE) {
+      const batch = deals.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((deal: any) => processDeal(prisma, deal, phases))
+      );
 
-        const herkomst = cfs.find((f: any) => f.definition.id === HERKOMST_CF)?.value || null;
-        const reclamatieRedenen = cfs.find((f: any) => f.definition.id === RECLAMATIE_CF)?.value || [];
-        const typeWerken = cfs.find((f: any) => f.definition.id === TYPE_WERKEN_CF)?.value || null;
-
-        const phase = phases[d.current_phase?.id] || { name: "Unknown", probability: 0 };
-        const status = mapStatus(phase.name, d.status, d.estimated_probability ?? phase.probability);
-        const revenue = d.estimated_value?.amount || 0;
-        const name = extractName(d.title || "");
-
-        // Get contact email
-        let contactEmail: string | null = null;
-        let contactPhone: string | null = null;
-        let contactName: string | null = null;
-        const contactId = d.lead?.customer?.type === "contact" ? d.lead?.customer?.id : null;
-
-        if (contactId) {
-          try {
-            const contact = await tlFetch(prisma, "contacts.info", { id: contactId });
-            const c = contact.data;
-            contactName = [c.first_name, c.last_name].filter(Boolean).join(" ") || null;
-            contactEmail = c.emails?.[0]?.email || null;
-            contactPhone = c.telephones?.[0]?.number || null;
-          } catch (e: any) {
-            console.warn(`[TL] Failed to fetch contact ${contactId}: ${e.message}`);
-          }
+      for (const r of results) {
+        if (r.status === "fulfilled") synced++;
+        else {
+          errors++;
+          if (errors <= 5) console.error(`[TL] Deal error: ${r.reason?.message}`);
         }
-
-        // Upsert contact
-        let dbContactId: string;
-        if (contactEmail) {
-          const existing = await prisma.contact.findUnique({ where: { email: contactEmail } });
-          if (existing) {
-            dbContactId = existing.id;
-            await prisma.contact.update({ where: { id: existing.id }, data: { phone: contactPhone || undefined, name: contactName || undefined } });
-          } else {
-            const created = await prisma.contact.create({ data: { email: contactEmail, phone: contactPhone, name: contactName || name } });
-            dbContactId = created.id;
-          }
-        } else {
-          const created = await prisma.contact.create({ data: { name: contactName || name, phone: contactPhone } });
-          dbContactId = created.id;
-        }
-
-        // Upsert deal
-        const dealData = {
-          contactId: dbContactId,
-          title: d.title || name,
-          phase: phase.name,
-          status,
-          herkomst,
-          typeWerken,
-          reclamatieRedenen: Array.isArray(reclamatieRedenen) ? reclamatieRedenen : [],
-          verantwoordelijke: null as string | null,
-          revenue: status === "WON" && revenue > 0 ? revenue : null,
-          probability: d.estimated_probability ?? phase.probability,
-          wonAt: status === "WON" && d.closed_at ? new Date(d.closed_at) : null,
-          dealCreatedAt: new Date(d.created_at),
-        };
-
-        if (deal.id) {
-          const existing = await prisma.deal.findUnique({ where: { teamleaderId: deal.id } });
-          if (existing) {
-            await prisma.deal.update({ where: { teamleaderId: deal.id }, data: dealData });
-          } else {
-            await prisma.deal.create({ data: { ...dealData, teamleaderId: deal.id } });
-          }
-        }
-
-        synced++;
-      } catch (e: any) {
-        errors++;
-        if (errors <= 3) console.error(`[TL] Error syncing deal ${deal.id}: ${e.message}`);
       }
+
+      console.log(`[TL] Page ${page}: ${Math.min(i + BATCH_SIZE, deals.length)}/${deals.length} done (${synced} synced, ${errors} errors)`);
     }
 
     if (deals.length < 100) break;
     page++;
   }
 
-  // Sync events/appointments
+  // Sync events/appointments in batches
   console.log("[TL] Syncing events...");
   let eventsSynced = 0;
   let eventsPage = 1;
@@ -258,31 +283,33 @@ export async function syncAll(prisma: PrismaClient) {
 
     const events = res.data || [];
     if (events.length === 0) break;
+    console.log(`[TL] Events page ${eventsPage}: ${events.length} events`);
 
-    for (const event of events) {
-      const dealLink = (event.links || []).find((l: any) => l.type === "deal");
-      if (!dealLink) continue;
+    for (let i = 0; i < events.length; i += BATCH_SIZE) {
+      const batch = events.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(async (event: any) => {
+          const dealLink = (event.links || []).find((l: any) => l.type === "deal");
+          if (!dealLink) return;
 
-      // Activity type = meeting (filtered in API call), so all events here are real appointments
-      const deal = await prisma.deal.findUnique({ where: { teamleaderId: dealLink.id }, select: { id: true, herkomst: true, dealCreatedAt: true } });
-      if (!deal) continue;
+          const deal = await prisma.deal.findUnique({ where: { teamleaderId: dealLink.id }, select: { id: true, herkomst: true, dealCreatedAt: true } });
+          if (!deal) return;
 
-      try {
-        await prisma.appointment.upsert({
-          where: { teamleaderId: event.id },
-          create: { teamleaderId: event.id, dealId: deal.id, date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
-          update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
-        });
-        eventsSynced++;
-      } catch (e: any) {
-        console.warn(`[TL] Failed to upsert appointment ${event.id}: ${e.message}`);
-      }
+          await prisma.appointment.upsert({
+            where: { teamleaderId: event.id },
+            create: { teamleaderId: event.id, dealId: deal.id, date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
+            update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
+          });
+          eventsSynced++;
+        })
+      );
     }
 
     if (events.length < 100) break;
     eventsPage++;
   }
 
-  console.log(`[TL] Sync done: ${synced} deals, ${eventsSynced} events, ${errors} errors`);
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[TL] Sync done in ${elapsed}s: ${synced} deals, ${eventsSynced} events, ${errors} errors`);
   return { synced, events: eventsSynced, errors };
 }
