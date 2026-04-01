@@ -70,8 +70,8 @@ async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): 
       signal: AbortSignal.timeout(30000),
     });
     if (res.status === 429) {
-      console.log(`[TL] Rate limited on ${endpoint}, retrying...`);
-      await sleep(Math.pow(2, attempt + 1) * 1000);
+      console.log(`[TL] Rate limited on ${endpoint}, waiting before retry (attempt ${attempt + 1}/5)...`);
+      await sleep(Math.pow(2, attempt + 1) * 2000);
       continue;
     }
     if (res.status === 401 && attempt === 0) {
@@ -233,11 +233,11 @@ export async function syncAll(prisma: PrismaClient) {
   const phases: Record<string, { name: string; probability: number }> = {};
   for (const p of phasesRes.data || []) phases[p.id] = { name: p.name, probability: p.probability };
 
-  // Fetch and process deals in batches of 5
+  // Fetch and process deals sequentially (Teamleader rate limit: ~100 req/min)
   let page = 1;
   let synced = 0;
   let errors = 0;
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 2;
 
   while (true) {
     const res = await tlFetch(prisma, "deals.list", {
@@ -264,6 +264,7 @@ export async function syncAll(prisma: PrismaClient) {
       }
 
       console.log(`[TL] Page ${page}: ${Math.min(i + BATCH_SIZE, deals.length)}/${deals.length} done (${synced} synced, ${errors} errors)`);
+      await sleep(1000); // 1s pause between batches to avoid rate limits
     }
 
     if (deals.length < 100) break;
