@@ -23,7 +23,7 @@ services:
     ports:
       - "8080:80"
     environment:
-      DATABASE_URL: postgresql://dashboard:${DB_PASSWORD:-recotex2026secure}@postgres:5432/analytics_dashboard?schema=public
+      DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 7d
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
