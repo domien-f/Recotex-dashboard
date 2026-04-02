@@ -500,14 +500,34 @@ function BeheerTab() {
                         if (cell) {
                           const src = SOURCE_LABELS[cell.source || ""] || { label: cell.source || "?", color: "bg-muted text-muted-foreground" };
                           const ago = cell.updatedAt ? Math.round((Date.now() - new Date(cell.updatedAt).getTime()) / 3600000) : null;
+                          const editable = canEdit() && !isAutoChannel(ch);
 
                           return (
                             <td key={month} className="py-3 text-center">
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="text-sm font-semibold tabular-nums">{formatCurrency(cell.amount)}</span>
-                                <span className={`inline-flex rounded-full px-1.5 py-0 text-[10px] font-medium ${src.color}`}>{src.label}</span>
-                                {ago !== null && <span className="text-[9px] text-muted-foreground/50">{ago < 1 ? "< 1u" : ago < 24 ? `${ago}u` : `${Math.round(ago / 24)}d`} geleden</span>}
-                              </div>
+                              {isEditing ? (
+                                <div className="flex items-center gap-1 justify-center">
+                                  <input
+                                    type="number"
+                                    className="w-20 rounded border border-border px-1.5 py-1 text-xs text-center"
+                                    value={editValues[key]}
+                                    onChange={(e) => setEditValues({ ...editValues, [key]: e.target.value })}
+                                    placeholder="€"
+                                    autoFocus
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleSave(ch, month); if (e.key === "Escape") setEditValues((p) => { const n = { ...p }; delete n[key]; return n; }); }}
+                                  />
+                                  <button className="text-xs text-success font-semibold hover:underline" onClick={() => handleSave(ch, month)} disabled={saving}>OK</button>
+                                </div>
+                              ) : (
+                                <div
+                                  className={`flex flex-col items-center gap-0.5 ${editable ? "cursor-pointer rounded-lg px-1 py-0.5 hover:bg-muted/60 transition-colors" : ""}`}
+                                  onClick={editable ? () => setEditValues({ ...editValues, [key]: String(cell.amount) }) : undefined}
+                                  title={editable ? "Klik om te bewerken" : undefined}
+                                >
+                                  <span className="text-sm font-semibold tabular-nums">{formatCurrency(cell.amount)}</span>
+                                  <span className={`inline-flex rounded-full px-1.5 py-0 text-[10px] font-medium ${src.color}`}>{src.label}</span>
+                                  {ago !== null && <span className="text-[9px] text-muted-foreground/50">{ago < 1 ? "< 1u" : ago < 24 ? `${ago}u` : `${Math.round(ago / 24)}d`} geleden</span>}
+                                </div>
+                              )}
                             </td>
                           );
                         }
