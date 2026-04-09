@@ -128,10 +128,18 @@ async function buildDataContext(): Promise<string> {
     monthlyCosts[key] = (monthlyCosts[key] || 0) + Number(c.amount);
   }
 
+  // Reclamation stats based on unique contacts (a contact is reclamation if no WON deals)
   const reclamationStats = await prisma.$queryRaw`
+    WITH contact_status AS (
+      SELECT contact_id, herkomst,
+        bool_or(status = 'WON') as has_won,
+        bool_or(reclamatie_redenen != '{}' OR phase LIKE 'Reclamaties%') as has_reclamation
+      FROM deals WHERE deal_created_at >= '2025-09-01'
+      GROUP BY contact_id, herkomst
+    )
     SELECT herkomst, COUNT(*)::int as total,
-      COUNT(*) FILTER (WHERE reclamatie_redenen != '{}' OR phase LIKE 'Reclamaties%')::int as reclamations
-    FROM deals WHERE deal_created_at >= '2025-09-01'
+      COUNT(*) FILTER (WHERE has_reclamation AND NOT has_won)::int as reclamations
+    FROM contact_status
     GROUP BY herkomst ORDER BY total DESC
   ` as any[];
 

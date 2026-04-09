@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useFilterStore } from "@/store/filterStore";
 import { Button } from "@/components/ui/button";
-import { LogOut, CalendarRange, ChevronLeft, ChevronRight, ChevronDown, Filter, X } from "lucide-react";
+import { LogOut, CalendarRange, ChevronLeft, ChevronRight, ChevronDown, Filter, X, Check } from "lucide-react";
 import api from "@/lib/api";
 
 function toLocalDateStr(d: Date): string {
@@ -22,21 +22,52 @@ function formatMonth(dateStr: string): string {
   return new Date(dateStr + "T12:00:00").toLocaleDateString("nl-BE", { month: "short", year: "numeric" });
 }
 
-function FilterSelect({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: string[]; placeholder: string }) {
+function MultiSelect({ selected, onToggle, onClear, options, placeholder }: { selected: string[]; onToggle: (v: string) => void; onClear: () => void; options: string[]; placeholder: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`h-7 rounded-lg border border-border/60 bg-white pl-2 pr-6 text-[11px] appearance-none cursor-pointer transition-colors ${value ? "text-foreground font-medium border-primary/40" : "text-muted-foreground"}`}
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1 h-7 rounded-lg border border-border/60 bg-white pl-2 pr-1.5 text-[11px] cursor-pointer transition-colors ${
+          selected.length > 0 ? "text-foreground font-medium border-primary/40" : "text-muted-foreground"
+        }`}
       >
-        <option value="">{placeholder}</option>
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-      {value && (
-        <button onClick={(e) => { e.stopPropagation(); onChange(""); }} className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full p-0.5 hover:bg-muted">
-          <X className="h-2.5 w-2.5 text-muted-foreground" />
-        </button>
+        <span className="max-w-[100px] truncate">{selected.length === 0 ? placeholder : selected.length === 1 ? selected[0] : `${selected.length} geselecteerd`}</span>
+        {selected.length > 0 ? (
+          <button onClick={(e) => { e.stopPropagation(); onClear(); }} className="rounded-full p-0.5 hover:bg-muted">
+            <X className="h-2.5 w-2.5 text-muted-foreground" />
+          </button>
+        ) : (
+          <ChevronDown className="h-2.5 w-2.5 text-muted-foreground" />
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] max-h-[240px] overflow-y-auto rounded-lg border border-border/60 bg-white py-1 shadow-xl">
+          {options.map((o) => {
+            const active = selected.includes(o);
+            return (
+              <button
+                key={o}
+                onClick={() => onToggle(o)}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] transition-colors ${active ? "bg-primary/5 text-primary font-medium" : "text-foreground hover:bg-muted"}`}
+              >
+                <div className={`flex h-3.5 w-3.5 items-center justify-center rounded border ${active ? "border-primary bg-primary" : "border-border"}`}>
+                  {active && <Check className="h-2.5 w-2.5 text-white" />}
+                </div>
+                {o}
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -44,7 +75,7 @@ function FilterSelect({ value, onChange, options, placeholder }: { value: string
 
 export function Header() {
   const { user, logout } = useAuthStore();
-  const { dateFrom, dateTo, channel, status, typeWerken, verantwoordelijke, setDateRange, setChannel, setStatus, setTypeWerken, setVerantwoordelijke, resetFilters } = useFilterStore();
+  const { dateFrom, dateTo, dateMode, channels, statuses, typeWerken, verantwoordelijken, setDateRange, setDateMode, toggleChannel, toggleStatus, toggleTypeWerken, toggleVerantwoordelijke, setChannels, setStatuses, setTypeWerkenAll, setVerantwoordelijken, resetFilters } = useFilterStore();
   const [showFilters, setShowFilters] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [pickingEnd, setPickingEnd] = useState(false);
@@ -71,7 +102,7 @@ export function Header() {
   const sameMonth = fromDate.getMonth() === toDate.getMonth() && fromDate.getFullYear() === toDate.getFullYear();
   const rangeLabel = sameMonth ? formatMonth(dateFrom) : `${formatMonth(dateFrom)} — ${formatMonth(dateTo)}`;
 
-  const activeFilterCount = [channel, status, typeWerken, verantwoordelijke].filter(Boolean).length;
+  const activeFilterCount = [channels, statuses, typeWerken, verantwoordelijken].filter((a) => a.length > 0).length;
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-white/80 backdrop-blur-xl">
@@ -104,12 +135,10 @@ export function Header() {
                     const end = new Date(year, monthIdx + 1, 0);
 
                     if (!pickingEnd) {
-                      // First click = select single month and close
                       setDateRange(toLocalDateStr(start), toLocalDateStr(end));
                       setShowMonthPicker(false);
                       setPickingEnd(false);
                     } else {
-                      // Range mode: picking end month
                       const startDate = new Date(dateFrom + "T12:00:00");
                       if (end < startDate) {
                         setDateRange(toLocalDateStr(start), toLocalDateStr(new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0)));
@@ -218,10 +247,20 @@ export function Header() {
       {showFilters && (
         <div className="flex items-center gap-3 border-t border-border/40 bg-muted/20 px-8 py-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filters:</span>
-          <FilterSelect value={channel} onChange={setChannel} options={filterOptions?.channels || []} placeholder="Kanaal" />
-          <FilterSelect value={status} onChange={setStatus} options={filterOptions?.statuses || []} placeholder="Status" />
-          <FilterSelect value={typeWerken} onChange={setTypeWerken} options={filterOptions?.typeWerken || []} placeholder="Type werken" />
-          <FilterSelect value={verantwoordelijke} onChange={setVerantwoordelijke} options={filterOptions?.verantwoordelijken || []} placeholder="Verantwoordelijke" />
+          <div className="flex rounded-lg border border-border/60 bg-white overflow-hidden">
+            <button
+              onClick={() => setDateMode("creation")}
+              className={`px-2 py-1 text-[10px] font-medium transition-colors ${dateMode === "creation" ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted"}`}
+            >Aanmaakdatum</button>
+            <button
+              onClick={() => setDateMode("won")}
+              className={`px-2 py-1 text-[10px] font-medium transition-colors ${dateMode === "won" ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted"}`}
+            >Datum gewonnen</button>
+          </div>
+          <MultiSelect selected={channels} onToggle={toggleChannel} onClear={() => setChannels([])} options={filterOptions?.channels || []} placeholder="Kanaal" />
+          <MultiSelect selected={statuses} onToggle={toggleStatus} onClear={() => setStatuses([])} options={filterOptions?.statuses || []} placeholder="Status" />
+          <MultiSelect selected={typeWerken} onToggle={toggleTypeWerken} onClear={() => setTypeWerkenAll([])} options={filterOptions?.typeWerken || []} placeholder="Type werken" />
+          <MultiSelect selected={verantwoordelijken} onToggle={toggleVerantwoordelijke} onClear={() => setVerantwoordelijken([])} options={filterOptions?.verantwoordelijken || []} placeholder="Verantwoordelijke" />
           {activeFilterCount > 0 && (
             <button onClick={resetFilters} className="text-[10px] text-destructive hover:underline">
               Alles wissen

@@ -14,6 +14,7 @@ import {
 
   Sparkles,
   FileDown,
+  Upload,
 } from "lucide-react";
 
 const mainNav = [
@@ -34,6 +35,7 @@ const toolsNav = [
   { to: "/ai", icon: Sparkles, label: "AI Assistent" },
   { to: "/rapport", icon: FileDown, label: "Rapport Export" },
   { to: "/facturen", icon: FileText, label: "Facturen" },
+  { to: "/import", icon: Upload, label: "Teamleader Import" },
   { to: "/settings", icon: Settings, label: "Instellingen" },
 ];
 

@@ -4,24 +4,35 @@ import { authenticate, AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 
+function multiFilter(val: unknown): string | { in: string[] } | undefined {
+  if (!val) return undefined;
+  const s = val as string;
+  return s.includes(",") ? { in: s.split(",") } : s;
+}
+
+function dateField(dateMode: unknown): string {
+  return dateMode === "won" ? "wonAt" : "dealCreatedAt";
+}
+
 router.use(authenticate);
 
 // Overview: all key metrics
 router.get("/overview", async (req: AuthRequest, res: Response) => {
-  const { dateFrom, dateTo, herkomst, status, typeWerken, verantwoordelijke } = req.query;
+  const { dateFrom, dateTo, dateMode, herkomst, status, typeWerken, verantwoordelijke } = req.query;
 
   const dealWhere: any = {};
   const costWhere: any = {};
-  if (herkomst) dealWhere.herkomst = herkomst;
-  if (status) dealWhere.status = status;
-  if (typeWerken) dealWhere.typeWerken = typeWerken;
-  if (verantwoordelijke) dealWhere.verantwoordelijke = verantwoordelijke;
+  if (herkomst) dealWhere.herkomst = multiFilter(herkomst);
+  if (status) dealWhere.status = multiFilter(status);
+  if (typeWerken) dealWhere.typeWerken = multiFilter(typeWerken);
+  if (verantwoordelijke) dealWhere.verantwoordelijke = multiFilter(verantwoordelijke);
 
   if (dateFrom || dateTo) {
+    const df = dateField(dateMode);
     const dateFilter: any = {};
     if (dateFrom) dateFilter.gte = new Date(dateFrom as string);
     if (dateTo) dateFilter.lte = new Date(dateTo as string);
-    dealWhere.dealCreatedAt = dateFilter;
+    dealWhere[df] = dateFilter;
     // Costs are stored per first-of-month, so expand range to include full months
     const costFilter: any = {};
     if (dateFrom) {
@@ -100,17 +111,18 @@ router.get("/overview", async (req: AuthRequest, res: Response) => {
 
 // Per channel (herkomst) breakdown
 router.get("/channels", async (req: AuthRequest, res: Response) => {
-  const { dateFrom, dateTo, herkomst, status, typeWerken, verantwoordelijke } = req.query;
+  const { dateFrom, dateTo, dateMode, herkomst, status, typeWerken, verantwoordelijke } = req.query;
 
   const dateFilter: any = {};
   if (dateFrom) dateFilter.gte = new Date(dateFrom as string);
   if (dateTo) dateFilter.lte = new Date(dateTo as string);
 
-  const dealWhere: any = dateFrom || dateTo ? { dealCreatedAt: dateFilter } : {};
-  if (herkomst) dealWhere.herkomst = herkomst;
-  if (status) dealWhere.status = status;
-  if (typeWerken) dealWhere.typeWerken = typeWerken;
-  if (verantwoordelijke) dealWhere.verantwoordelijke = verantwoordelijke;
+  const df = dateField(dateMode);
+  const dealWhere: any = dateFrom || dateTo ? { [df]: dateFilter } : {};
+  if (herkomst) dealWhere.herkomst = multiFilter(herkomst);
+  if (status) dealWhere.status = multiFilter(status);
+  if (typeWerken) dealWhere.typeWerken = multiFilter(typeWerken);
+  if (verantwoordelijke) dealWhere.verantwoordelijke = multiFilter(verantwoordelijke);
   // Expand cost date filter to full months
   const costDateFilter: any = {};
   if (dateFrom) { const d = new Date(dateFrom as string); costDateFilter.gte = new Date(d.getFullYear(), d.getMonth(), 1); }
@@ -301,45 +313,74 @@ router.get("/cost-vs-revenue", async (req: AuthRequest, res: Response) => {
 
 // Lead sources detail
 router.get("/lead-sources", async (req: AuthRequest, res: Response) => {
-  const { dateFrom, dateTo, herkomst, status, typeWerken, verantwoordelijke } = req.query;
+  const { dateFrom, dateTo, dateMode, herkomst, status, typeWerken, verantwoordelijke } = req.query;
 
   const where: any = {};
   if (dateFrom || dateTo) {
-    where.dealCreatedAt = {};
-    if (dateFrom) where.dealCreatedAt.gte = new Date(dateFrom as string);
-    if (dateTo) where.dealCreatedAt.lte = new Date(dateTo as string);
+    const df = dateField(dateMode);
+    where[df] = {};
+    if (dateFrom) where[df].gte = new Date(dateFrom as string);
+    if (dateTo) where[df].lte = new Date(dateTo as string);
   }
-  if (herkomst) where.herkomst = herkomst;
-  if (status) where.status = status;
-  if (typeWerken) where.typeWerken = typeWerken;
-  if (verantwoordelijke) where.verantwoordelijke = verantwoordelijke;
+  if (herkomst) where.herkomst = multiFilter(herkomst);
+  if (status) where.status = multiFilter(status);
+  if (typeWerken) where.typeWerken = multiFilter(typeWerken);
+  if (verantwoordelijke) where.verantwoordelijke = multiFilter(verantwoordelijke);
 
   const [byChannel, wonByChannel] = await Promise.all([
     prisma.deal.groupBy({ by: ["herkomst"], where, _count: true, _sum: { revenue: true } }),
     prisma.deal.groupBy({ by: ["herkomst"], where: { ...where, status: "WON" }, _count: true }),
   ]);
 
-  // Get reclamation counts — deals with non-empty reclamatieRedenen
-  const reclamationsByChannel = await prisma.deal.groupBy({
-    by: ["herkomst"],
-    where: { ...where, reclamatieRedenen: { isEmpty: false } },
-    _count: true,
+  // Reclamation based on contacts: a contact is a reclamation if they have reclamation deals AND no WON deals
+  const allFilteredDeals = await prisma.deal.findMany({
+    where,
+    select: { contactId: true, herkomst: true, status: true, reclamatieRedenen: true, phase: true },
   });
+
+  // Group by contact
+  const contactMap = new Map<string, { herkomst: string; hasWon: boolean; hasReclamation: boolean }>();
+  for (const d of allFilteredDeals) {
+    const existing = contactMap.get(d.contactId);
+    const isReclamation = (d.reclamatieRedenen?.length > 0) || d.phase?.startsWith("Reclamaties");
+    if (existing) {
+      if (d.status === "WON") existing.hasWon = true;
+      if (isReclamation) existing.hasReclamation = true;
+    } else {
+      contactMap.set(d.contactId, {
+        herkomst: d.herkomst || "Onbekend",
+        hasWon: d.status === "WON",
+        hasReclamation: isReclamation,
+      });
+    }
+  }
+
+  // Count reclamation contacts per channel (has reclamation AND no won)
+  const reclamationCountByChannel: Record<string, number> = {};
+  const totalContactsByChannel: Record<string, number> = {};
+  for (const c of contactMap.values()) {
+    const ch = c.herkomst;
+    totalContactsByChannel[ch] = (totalContactsByChannel[ch] || 0) + 1;
+    if (c.hasReclamation && !c.hasWon) {
+      reclamationCountByChannel[ch] = (reclamationCountByChannel[ch] || 0) + 1;
+    }
+  }
 
   const result = byChannel.map((ch) => {
     const channel = ch.herkomst || "Onbekend";
     const won = wonByChannel.find((w) => (w.herkomst || "Onbekend") === channel)?._count || 0;
-    const reclamations = reclamationsByChannel.find((r) => (r.herkomst || "Onbekend") === channel)?._count || 0;
+    const totalContacts = totalContactsByChannel[channel] || 0;
+    const reclamations = reclamationCountByChannel[channel] || 0;
 
     return {
       channel,
       totalDeals: ch._count,
       wonDeals: won,
       reclamations,
-      reclamationRate: ch._count > 0 ? ((reclamations / ch._count) * 100).toFixed(1) : "0.0",
+      reclamationRate: totalContacts > 0 ? ((reclamations / totalContacts) * 100).toFixed(1) : "0.0",
       winRate: ch._count > 0 ? ((won / ch._count) * 100).toFixed(1) : "0.0",
       revenue: ch._sum.revenue || 0,
-      qualityScore: ch._count > 0 ? ((1 - reclamations / ch._count) * (won / ch._count) * 100).toFixed(1) : "0.0",
+      qualityScore: totalContacts > 0 ? ((1 - reclamations / totalContacts) * (won / ch._count) * 100).toFixed(1) : "0.0",
     };
   });
 
@@ -348,18 +389,19 @@ router.get("/lead-sources", async (req: AuthRequest, res: Response) => {
 
 // Reclamation stats
 router.get("/reclamations", async (req: AuthRequest, res: Response) => {
-  const { dateFrom, dateTo, herkomst, status, typeWerken, verantwoordelijke } = req.query;
+  const { dateFrom, dateTo, dateMode, herkomst, status, typeWerken, verantwoordelijke } = req.query;
 
   const where: any = {};
   if (dateFrom || dateTo) {
-    where.dealCreatedAt = {};
-    if (dateFrom) where.dealCreatedAt.gte = new Date(dateFrom as string);
-    if (dateTo) where.dealCreatedAt.lte = new Date(dateTo as string);
+    const df = dateField(dateMode);
+    where[df] = {};
+    if (dateFrom) where[df].gte = new Date(dateFrom as string);
+    if (dateTo) where[df].lte = new Date(dateTo as string);
   }
-  if (herkomst) where.herkomst = herkomst;
-  if (status) where.status = status;
-  if (typeWerken) where.typeWerken = typeWerken;
-  if (verantwoordelijke) where.verantwoordelijke = verantwoordelijke;
+  if (herkomst) where.herkomst = multiFilter(herkomst);
+  if (status) where.status = multiFilter(status);
+  if (typeWerken) where.typeWerken = multiFilter(typeWerken);
+  if (verantwoordelijke) where.verantwoordelijke = multiFilter(verantwoordelijke);
 
   // A deal is a reclamation if it has redenen filled OR is in a reclamation phase
   const reclamationWhere = {
@@ -370,66 +412,86 @@ router.get("/reclamations", async (req: AuthRequest, res: Response) => {
     ],
   };
 
-  const [totalDeals, totalReclamations, reclamationDeals, reclamationsByChannel] = await Promise.all([
-    prisma.deal.count({ where }),
-    prisma.deal.count({ where: reclamationWhere }),
-    prisma.deal.findMany({
-      where: reclamationWhere,
-      select: { reclamatieRedenen: true, dealCreatedAt: true, herkomst: true, phase: true },
-    }),
-    prisma.deal.groupBy({
-      by: ["herkomst"],
-      where: reclamationWhere,
-      _count: true,
-    }),
-  ]);
-
-  // Count individual reasons (unnest arrays)
-  const reasonCounts: Record<string, number> = {};
-  const trendMap: Record<string, number> = {};
-  const channelReasonMap: Record<string, Record<string, number>> = {};
-
-  for (const deal of reclamationDeals) {
-    // Use explicit reasons if available, otherwise derive from phase
-    const reasons = deal.reclamatieRedenen.length > 0
-      ? deal.reclamatieRedenen
-      : deal.phase?.startsWith("Reclamaties") ? [deal.phase!] : ["Onbekend"];
-
-    for (const reason of reasons) {
-      reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
-
-      const ch = deal.herkomst || "Onbekend";
-      if (!channelReasonMap[ch]) channelReasonMap[ch] = {};
-      channelReasonMap[ch][reason] = (channelReasonMap[ch][reason] || 0) + 1;
-    }
-
-    if (deal.dealCreatedAt) {
-      const key = `${deal.dealCreatedAt.getFullYear()}-${String(deal.dealCreatedAt.getMonth() + 1).padStart(2, "0")}`;
-      trendMap[key] = (trendMap[key] || 0) + 1;
-    }
-  }
-
-  // Get total deals per month for % trend
+  // Fetch all deals matching filters to compute contact-based reclamation
   const allDeals = await prisma.deal.findMany({
     where,
-    select: { dealCreatedAt: true },
+    select: { contactId: true, reclamatieRedenen: true, dealCreatedAt: true, herkomst: true, phase: true, status: true },
   });
-  const totalPerMonth: Record<string, number> = {};
-  for (const d of allDeals) {
-    if (d.dealCreatedAt) {
-      const key = `${d.dealCreatedAt.getFullYear()}-${String(d.dealCreatedAt.getMonth() + 1).padStart(2, "0")}`;
-      totalPerMonth[key] = (totalPerMonth[key] || 0) + 1;
+
+  // Group by contact to determine reclamation status per lead
+  const contactInfo = new Map<string, {
+    herkomst: string;
+    hasWon: boolean;
+    hasReclamation: boolean;
+    reasons: string[];
+    dealCreatedAt: Date | null;
+  }>();
+
+  for (const deal of allDeals) {
+    const isReclamation = (deal.reclamatieRedenen?.length > 0) || deal.phase?.startsWith("Reclamaties");
+    const reasons = deal.reclamatieRedenen?.length > 0
+      ? deal.reclamatieRedenen
+      : deal.phase?.startsWith("Reclamaties") ? [deal.phase!] : [];
+
+    const existing = contactInfo.get(deal.contactId);
+    if (existing) {
+      if (deal.status === "WON") existing.hasWon = true;
+      if (isReclamation) {
+        existing.hasReclamation = true;
+        existing.reasons.push(...reasons);
+      }
+    } else {
+      contactInfo.set(deal.contactId, {
+        herkomst: deal.herkomst || "Onbekend",
+        hasWon: deal.status === "WON",
+        hasReclamation: isReclamation,
+        reasons: [...reasons],
+        dealCreatedAt: deal.dealCreatedAt,
+      });
     }
   }
 
-  // Get total deals per channel for ratio
-  const dealsPerChannel = await prisma.deal.groupBy({ by: ["herkomst"], where, _count: true });
+  // A contact is a reclamation lead if: has reclamation AND no WON deals
+  const totalContacts = contactInfo.size;
+  let totalReclamations = 0;
+  const reasonCounts: Record<string, number> = {};
+  const trendMap: Record<string, number> = {};
+  const totalPerMonth: Record<string, number> = {};
+  const channelReasonMap: Record<string, Record<string, number>> = {};
+  const reclamationCountByChannel: Record<string, number> = {};
+  const totalContactsByChannel: Record<string, number> = {};
+
+  for (const c of contactInfo.values()) {
+    const ch = c.herkomst;
+    totalContactsByChannel[ch] = (totalContactsByChannel[ch] || 0) + 1;
+
+    if (c.dealCreatedAt) {
+      const monthKey = `${c.dealCreatedAt.getFullYear()}-${String(c.dealCreatedAt.getMonth() + 1).padStart(2, "0")}`;
+      totalPerMonth[monthKey] = (totalPerMonth[monthKey] || 0) + 1;
+    }
+
+    if (c.hasReclamation && !c.hasWon) {
+      totalReclamations++;
+      reclamationCountByChannel[ch] = (reclamationCountByChannel[ch] || 0) + 1;
+
+      const reasons = c.reasons.length > 0 ? c.reasons : ["Onbekend"];
+      for (const reason of reasons) {
+        reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+        if (!channelReasonMap[ch]) channelReasonMap[ch] = {};
+        channelReasonMap[ch][reason] = (channelReasonMap[ch][reason] || 0) + 1;
+      }
+
+      if (c.dealCreatedAt) {
+        const monthKey = `${c.dealCreatedAt.getFullYear()}-${String(c.dealCreatedAt.getMonth() + 1).padStart(2, "0")}`;
+        trendMap[monthKey] = (trendMap[monthKey] || 0) + 1;
+      }
+    }
+  }
 
   const byCategory = Object.entries(reasonCounts)
     .map(([reason, count]) => ({ reason, count }))
     .sort((a, b) => b.count - a.count);
 
-  // Merge all months from both maps
   const allMonths = new Set([...Object.keys(trendMap), ...Object.keys(totalPerMonth)]);
   const trend = Array.from(allMonths)
     .map((month) => {
@@ -444,22 +506,26 @@ router.get("/reclamations", async (req: AuthRequest, res: Response) => {
     })
     .sort((a, b) => a.month.localeCompare(b.month));
 
-  const byChannel = reclamationsByChannel.map((ch) => {
-    const channel = ch.herkomst || "Onbekend";
-    const channelTotal = dealsPerChannel.find((d) => (d.herkomst || "Onbekend") === channel)?._count || 0;
-    return {
-      channel,
-      reclamations: ch._count,
-      totalDeals: channelTotal,
-      reclamationRate: channelTotal > 0 ? ((ch._count / channelTotal) * 100).toFixed(1) : "0.0",
-      breakdown: Object.entries(channelReasonMap[channel] || {}).map(([reason, count]) => ({ reason, count })),
-    };
-  }).sort((a, b) => b.reclamations - a.reclamations);
+  const channelNames = new Set([...Object.keys(reclamationCountByChannel), ...Object.keys(totalContactsByChannel)]);
+  const byChannel = Array.from(channelNames)
+    .map((channel) => {
+      const reclamations = reclamationCountByChannel[channel] || 0;
+      const channelTotal = totalContactsByChannel[channel] || 0;
+      return {
+        channel,
+        reclamations,
+        totalDeals: channelTotal,
+        reclamationRate: channelTotal > 0 ? ((reclamations / channelTotal) * 100).toFixed(1) : "0.0",
+        breakdown: Object.entries(channelReasonMap[channel] || {}).map(([reason, count]) => ({ reason, count })),
+      };
+    })
+    .filter((ch) => ch.reclamations > 0)
+    .sort((a, b) => b.reclamations - a.reclamations);
 
   res.json({
-    totalDeals,
+    totalDeals: totalContacts,
     totalReclamations,
-    reclamationRate: totalDeals > 0 ? ((totalReclamations / totalDeals) * 100).toFixed(1) : "0.0",
+    reclamationRate: totalContacts > 0 ? ((totalReclamations / totalContacts) * 100).toFixed(1) : "0.0",
     byCategory,
     byChannel,
     trend,

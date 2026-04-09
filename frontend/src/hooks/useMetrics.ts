@@ -4,13 +4,13 @@ import { useFilterStore } from "../store/filterStore";
 import type { MetricsOverview, ChannelMetrics } from "../types";
 
 function useFilters() {
-  const { dateFrom, dateTo, channel, status, typeWerken, verantwoordelijke } = useFilterStore();
-  const params: Record<string, string> = { dateFrom, dateTo };
-  if (channel) params.herkomst = channel;
-  if (status) params.status = status;
-  if (typeWerken) params.typeWerken = typeWerken;
-  if (verantwoordelijke) params.verantwoordelijke = verantwoordelijke;
-  const key = [dateFrom, dateTo, channel, status, typeWerken, verantwoordelijke];
+  const { dateFrom, dateTo, dateMode, channels, statuses, typeWerken, verantwoordelijken } = useFilterStore();
+  const params: Record<string, string> = { dateFrom, dateTo, dateMode };
+  if (channels.length) params.herkomst = channels.join(",");
+  if (statuses.length) params.status = statuses.join(",");
+  if (typeWerken.length) params.typeWerken = typeWerken.join(",");
+  if (verantwoordelijken.length) params.verantwoordelijke = verantwoordelijken.join(",");
+  const key = [dateFrom, dateTo, dateMode, channels.join(","), statuses.join(","), typeWerken.join(","), verantwoordelijken.join(",")];
   return { params, key };
 }
 

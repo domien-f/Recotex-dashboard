@@ -45,8 +45,7 @@ function excelDateToJS(val: any): Date | null {
 function dealKey(row: any): string {
   const title = (row["Titel"] || "").trim();
   const email = (row["Klant: E-mail"] || "").trim().toLowerCase();
-  const datum = row["Datum toegevoegd"] || "";
-  return `${title}||${email}||${datum}`;
+  return `${title}||${email}`;
 }
 
 export async function importFromExcel(filePath: string, since?: Date): Promise<{ contacts: number; deals: number; skipped: number; errors: number }> {
@@ -79,13 +78,15 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
   }
   console.log(`Unique deals: ${unique.length} (${filtered.length - unique.length} duplicates in Excel)`);
 
-  // Check which deals already exist in DB (by title + dealCreatedAt)
+  // Build lookup of existing deals (by title + email) for upsert
   const existingDeals = await prisma.deal.findMany({
-    select: { title: true, dealCreatedAt: true },
+    select: { id: true, title: true, contact: { select: { email: true } } },
   });
-  const existingSet = new Set(
-    existingDeals.map((d) => `${d.title || ""}||${d.dealCreatedAt?.toISOString() || ""}`)
-  );
+  const existingDealMap = new Map<string, string>();
+  for (const d of existingDeals) {
+    const key = `${d.title || ""}||${(d.contact?.email || "").toLowerCase()}`;
+    existingDealMap.set(key, d.id);
+  }
 
   // Create contacts
   console.log("Creating contacts...");
@@ -134,11 +135,11 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
 
   console.log(`Contacts: ${contactCount}`);
 
-  // Create deals
-  console.log("Creating deals...");
-  let dealCount = 0;
+  // Upsert deals — create new, update existing
+  console.log("Upserting deals...");
+  let created = 0;
+  let updated = 0;
   let dealErrors = 0;
-  let skipped = 0;
 
   for (const row of unique) {
     try {
@@ -160,58 +161,175 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
       const dealCreatedAt = excelDateToJS(row["Datum toegevoegd"]);
       const title = row["Titel"] ? String(row["Titel"]).trim() : null;
 
-      // Skip if deal already exists
-      const checkKey = `${title || ""}||${dealCreatedAt?.toISOString() || ""}`;
-      if (existingSet.has(checkKey)) {
-        skipped++;
-        continue;
-      }
-
-      const wonRaw = row["Datum gewonnen"];
-      const wonAt = excelDateToJS(wonRaw);
+      const wonAt = excelDateToJS(row["Datum gewonnen"]);
+      const effectiveWonAt = status === "WON" ? (wonAt || dealCreatedAt) : null;
 
       const reclamatieRedenen = parseReclamatieRedenen(
         row["Reclamatie redenen"] ? String(row["Reclamatie redenen"]) : null
       );
 
-      await prisma.deal.create({
-        data: {
-          contactId,
-          title,
-          phase: fase,
-          status,
-          herkomst: row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : null,
-          typeWerken: row["Type werken"] ? String(row["Type werken"]).trim() : null,
-          reclamatieRedenen,
-          verantwoordelijke: row["Verantwoordelijke"] ? String(row["Verantwoordelijke"]).trim() : null,
-          revenue: revenue != null && revenue > 0 ? revenue : null,
-          probability: slaagkans,
-          wonAt: status === "WON" ? wonAt : null,
-          dealCreatedAt,
-        },
-      });
+      const dealData = {
+        contactId,
+        title,
+        phase: fase,
+        status,
+        herkomst: row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : null,
+        typeWerken: row["Type werken"] ? String(row["Type werken"]).trim() : null,
+        reclamatieRedenen,
+        verantwoordelijke: row["Verantwoordelijke"] ? String(row["Verantwoordelijke"]).trim() : null,
+        revenue: revenue != null && revenue > 0 ? revenue : null,
+        probability: slaagkans,
+        wonAt: effectiveWonAt,
+        dealCreatedAt,
+      };
 
-      dealCount++;
-      existingSet.add(checkKey); // Prevent duplicates within same import
-      if (dealCount % 500 === 0) console.log(`  ${dealCount} deals created...`);
+      const checkKey = `${title || ""}||${(email || "").toLowerCase()}`;
+      const existingId = existingDealMap.get(checkKey);
+
+      if (existingId) {
+        await prisma.deal.update({ where: { id: existingId }, data: dealData });
+        updated++;
+      } else {
+        await prisma.deal.create({ data: dealData });
+        existingDealMap.set(checkKey, "new"); // Prevent duplicates within same import
+        created++;
+      }
+      if ((created + updated) % 500 === 0) console.log(`  ${created} created, ${updated} updated...`);
     } catch (e: any) {
       dealErrors++;
       if (dealErrors <= 5) console.error(`Deal error:`, e.message);
     }
   }
 
-  console.log(`\nImport complete: ${dealCount} deals, ${contactCount} contacts, ${skipped} skipped, ${dealErrors} errors`);
-  return { contacts: contactCount, deals: dealCount, skipped, errors: dealErrors };
+  // Rebuild appointments from deal phases
+  console.log("Rebuilding appointments from deal phases...");
+  await prisma.appointment.deleteMany({});
+
+  const APPOINTMENT_PHASES = [
+    'Meeting gepland', 'Negotiatie', 'Opvolging LT', 'Opvolging adviseur',
+    'Aanvaard', 'Gevalideerd', 'Voorschot verstuurd', 'Voorschotfactuur betaald',
+    'Offerte verzonden', 'Ingepland', 'Eindfactuur verstuurd',
+    'Tweede voorschotfactuur verstuurd', 'Tweede voorschotfactuur betaald', 'Afsluit dossier',
+    'Geweigerd',
+  ];
+
+  // 1 appointment per unique contact (earliest deal in appointment phase)
+  const appointmentDeals = await prisma.$queryRaw<{ id: string; deal_created_at: Date; herkomst: string | null; title: string | null }[]>`
+    SELECT DISTINCT ON (contact_id) id, deal_created_at, herkomst, title
+    FROM deals
+    WHERE phase = ANY(${APPOINTMENT_PHASES})
+    ORDER BY contact_id, deal_created_at ASC
+  `;
+
+  for (const d of appointmentDeals) {
+    await prisma.appointment.create({
+      data: { dealId: d.id, date: d.deal_created_at, scheduledAt: d.deal_created_at, channel: d.herkomst, notes: d.title },
+    });
+  }
+
+  console.log(`\nImport complete: ${created} created, ${updated} updated, ${contactCount} contacts, ${dealErrors} errors, ${appointmentDeals.length} appointments`);
+  return { contacts: contactCount, deals: created + updated, skipped: 0, errors: dealErrors };
+}
+
+// ─── Afspraken import ───
+
+export async function importAfspraken(filePath: string): Promise<{ appointments: number; skipped: number; errors: number }> {
+  console.log("Reading afspraken Excel:", filePath);
+  const workbook = XLSX.readFile(filePath);
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<any>(sheet);
+
+  console.log(`Total afspraken rows: ${rows.length}`);
+
+  // Build lookup: find deals by title + email
+  const allDeals = await prisma.deal.findMany({
+    select: { id: true, title: true, herkomst: true, dealCreatedAt: true, contact: { select: { email: true } } },
+  });
+
+  // Map: "title||email" -> deal
+  const dealLookup = new Map<string, { id: string; herkomst: string | null; dealCreatedAt: Date | null }>();
+  for (const d of allDeals) {
+    const key = `${(d.title || "").trim().toLowerCase()}||${(d.contact?.email || "").toLowerCase()}`;
+    dealLookup.set(key, { id: d.id, herkomst: d.herkomst, dealCreatedAt: d.dealCreatedAt });
+  }
+
+  // Get existing appointments to dedup
+  const existingAppointments = await prisma.appointment.findMany({
+    select: { dealId: true, date: true },
+  });
+  const existingSet = new Set(
+    existingAppointments.map((a) => `${a.dealId}||${a.date.toISOString()}`)
+  );
+
+  let appointments = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const row of rows) {
+    try {
+      const title = row["Titel"] ? String(row["Titel"]).trim() : null;
+      const email = row["Klant: E-mail"] ? String(row["Klant: E-mail"]).trim().toLowerCase() : "";
+      const datumRaw = row["Datum toegevoegd"];
+      const date = excelDateToJS(datumRaw);
+
+      if (!title || !date) {
+        errors++;
+        continue;
+      }
+
+      // Look up deal
+      const lookupKey = `${title.toLowerCase()}||${email}`;
+      const deal = dealLookup.get(lookupKey);
+
+      if (!deal) {
+        skipped++;
+        continue;
+      }
+
+      // Dedup: skip if appointment already exists for this deal on this date
+      const dedupKey = `${deal.id}||${date.toISOString()}`;
+      if (existingSet.has(dedupKey)) {
+        skipped++;
+        continue;
+      }
+
+      const herkomst = row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : deal.herkomst;
+
+      await prisma.appointment.create({
+        data: {
+          dealId: deal.id,
+          date,
+          scheduledAt: deal.dealCreatedAt,
+          channel: herkomst,
+          notes: title,
+        },
+      });
+
+      appointments++;
+      existingSet.add(dedupKey);
+      if (appointments % 200 === 0) console.log(`  ${appointments} appointments created...`);
+    } catch (e: any) {
+      errors++;
+      if (errors <= 5) console.error(`Appointment error:`, e.message);
+    }
+  }
+
+  console.log(`\nAfspraken import complete: ${appointments} appointments, ${skipped} skipped, ${errors} errors`);
+  return { appointments, skipped, errors };
 }
 
 // CLI mode
 if (require.main === module) {
-  const filePath = process.argv[2] || path.resolve(__dirname, "../../../Dev info /Lead_performance_review_20-2026-03-24-15-07-56.xlsx");
-  importFromExcel(filePath)
-    .then(() => prisma.$disconnect())
-    .catch((e) => {
-      console.error("Import failed:", e);
-      prisma.$disconnect();
-      process.exit(1);
-    });
+  const type = process.argv[2] || "deals";
+  const filePath = process.argv[3] || process.argv[2];
+
+  if (type === "afspraken") {
+    importAfspraken(filePath)
+      .then(() => prisma.$disconnect())
+      .catch((e) => { console.error("Import failed:", e); prisma.$disconnect(); process.exit(1); });
+  } else {
+    importFromExcel(filePath)
+      .then(() => prisma.$disconnect())
+      .catch((e) => { console.error("Import failed:", e); prisma.$disconnect(); process.exit(1); });
+  }
 }

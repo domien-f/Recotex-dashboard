@@ -55,7 +55,7 @@ router.get("/summary", async (req: AuthRequest, res: Response) => {
 });
 
 // Create or update manual cost
-router.post("/", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res: Response) => {
+router.post("/", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
   const { channel, amount, date, type, description, source } = req.body;
 
   if (!channel || amount === undefined || !date || !type) {
@@ -78,7 +78,7 @@ router.post("/", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res: 
 });
 
 // Upsert cost for a channel/month (for manual entry grid)
-router.put("/channel-month", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res: Response) => {
+router.put("/channel-month", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
   const { channel, month, amount, description } = req.body;
 
   if (!channel || !month || amount === undefined) {
@@ -129,7 +129,7 @@ router.put("/channel-month", requireRole("ADMIN", "MANAGER"), async (req: AuthRe
 });
 
 // Delete a cost
-router.delete("/:id", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res: Response) => {
+router.delete("/:id", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
   await prisma.cost.delete({ where: { id: req.params.id as string } });
   res.json({ message: "Kost verwijderd" });
 });

@@ -1,11 +1,16 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useMetricsOverview, useChannelMetrics } from "@/hooks/useMetrics";
+import { useFilterStore } from "@/store/filterStore";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/utils";
-import { Users, UserCheck, Trophy, TrendingUp, Wallet, Download } from "lucide-react";
+import { Users, UserCheck, Trophy, TrendingUp, Wallet, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { exportCSV } from "@/lib/export";
 import { MetricLabel } from "@/components/ui/metric-label";
+import api from "@/lib/api";
+import type { Deal } from "@/types";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -29,7 +34,70 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
+type DrillFilter = { status?: string; title: string } | null;
+
+function DealsModal({ filter, onClose }: { filter: NonNullable<DrillFilter>; onClose: () => void }) {
+  const { dateFrom, dateTo, dateMode, channels, typeWerken, verantwoordelijken } = useFilterStore();
+  const params: Record<string, string> = { dateFrom, dateTo, dateMode, limit: "200" };
+  if (filter.status) params.status = filter.status;
+  if (channels.length) params.herkomst = channels.join(",");
+  if (typeWerken.length) params.typeWerken = typeWerken.join(",");
+  if (verantwoordelijken.length) params.verantwoordelijke = verantwoordelijken.join(",");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["drill", filter, dateFrom, dateTo, dateMode, channels, typeWerken, verantwoordelijken],
+    queryFn: async () => (await api.get("/deals", { params })).data as { deals: Deal[]; total: number },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="mx-4 w-full max-w-4xl max-h-[80vh] flex flex-col rounded-2xl border border-border/60 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border/40 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-bold text-foreground">{filter.title}</h3>
+            <p className="text-xs text-muted-foreground">{data?.total || 0} resultaten</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted transition-colors"><X className="h-5 w-5 text-muted-foreground" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-6 py-3">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/40 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  <th className="py-2">Klant</th>
+                  <th>Titel</th>
+                  <th>Kanaal</th>
+                  <th>Verkoper</th>
+                  <th>Fase</th>
+                  <th className="text-right">Bedrag</th>
+                  <th className="text-right">Datum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data?.deals.map((d) => (
+                  <tr key={d.id} className="border-b border-border/20 hover:bg-muted/30">
+                    <td className="py-2 font-medium">{d.contact?.name || "—"}</td>
+                    <td className="text-muted-foreground">{d.title || "—"}</td>
+                    <td>{d.herkomst || "—"}</td>
+                    <td>{d.verantwoordelijke || "—"}</td>
+                    <td>{d.phase || "—"}</td>
+                    <td className="text-right font-medium">{d.revenue ? formatCurrency(d.revenue) : "—"}</td>
+                    <td className="text-right text-muted-foreground">{d.wonAt ? new Date(d.wonAt).toLocaleDateString("nl-BE") : d.dealCreatedAt ? new Date(d.dealCreatedAt).toLocaleDateString("nl-BE") : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardPage() {
+  const [drill, setDrill] = useState<DrillFilter>(null);
   const { data: overview, isLoading: loadingOverview } = useMetricsOverview();
   const { data: channels, isLoading: loadingChannels } = useChannelMetrics();
 
@@ -69,11 +137,11 @@ export function DashboardPage() {
 
       {/* KPI Cards Row 1 */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-5">
-        <KpiCard title="Totaal Deals" value={formatNumber(overview.totalDeals)} icon={<Users className="h-4 w-4" />} />
+        <KpiCard title="Totaal Deals" value={formatNumber(overview.totalDeals)} icon={<Users className="h-4 w-4" />} onClick={() => setDrill({ title: "Alle Deals" })} />
         <KpiCard title="Unieke Contacten" value={formatNumber(overview.uniqueContacts)} icon={<UserCheck className="h-4 w-4" />} />
-        <KpiCard title="Won Deals" value={formatNumber(overview.wonDeals)} icon={<Trophy className="h-4 w-4" />} />
+        <KpiCard title="Won Deals" value={formatNumber(overview.wonDeals)} icon={<Trophy className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Won Deals" })} />
         <KpiCard title="Win Rate" value={formatPercent(overview.winRateGlobal)} icon={<TrendingUp className="h-4 w-4" />} />
-        <KpiCard title="Totale Omzet" value={formatCurrency(overview.totalRevenue)} icon={<Wallet className="h-4 w-4" />} />
+        <KpiCard title="Totale Omzet" value={formatCurrency(overview.totalRevenue)} icon={<Wallet className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Omzet — Won Deals" })} />
       </div>
 
       {/* KPI Cards Row 2 */}
@@ -181,6 +249,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {drill && <DealsModal filter={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

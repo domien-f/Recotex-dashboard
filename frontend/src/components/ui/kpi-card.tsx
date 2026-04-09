@@ -9,13 +9,16 @@ interface KpiCardProps {
   trend?: number;
   isEstimated?: boolean;
   className?: string;
+  onClick?: () => void;
 }
 
-export function KpiCard({ title, value, icon, trend, isEstimated, className }: KpiCardProps) {
+export function KpiCard({ title, value, icon, trend, isEstimated, className, onClick }: KpiCardProps) {
   return (
     <div
+      onClick={onClick}
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] transition-all hover:shadow-[0_4px_12px_0_rgba(0,0,0,0.06)]",
+        onClick && "cursor-pointer hover:border-primary/40",
         className
       )}
     >

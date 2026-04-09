@@ -5,7 +5,7 @@ import { prisma } from "../index.js";
 import { authenticate, AuthRequest } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 import { syncAll as syncTeamleader } from "../services/teamleader.js";
-import { importFromExcel } from "../scripts/importExcel.js";
+import { importFromExcel, importAfspraken } from "../scripts/importExcel.js";
 
 const router = Router();
 const upload = multer({ dest: path.resolve("/tmp/uploads") });
@@ -71,23 +71,32 @@ router.post("/import/excel", requireRole("ADMIN"), upload.single("file"), async 
   }
 
   const filePath = req.file.path;
-  console.log(`[Import] Excel upload received: ${req.file.originalname} (${req.file.size} bytes)`);
+  const importType = (req.body.type || "deals") as string;
+  console.log(`[Import] Excel upload received: ${req.file.originalname} (${req.file.size} bytes), type: ${importType}`);
 
   const log = await prisma.syncLog.create({
-    data: { source: "excel-import", status: "RUNNING" },
+    data: { source: `excel-import-${importType}`, status: "RUNNING" },
   });
 
   // Run in background so response is fast
-  res.json({ message: "Excel import started", logId: log.id });
+  res.json({ message: `${importType} import started`, logId: log.id });
 
   try {
-    const result = await importFromExcel(filePath);
-    await prisma.syncLog.update({
-      where: { id: log.id },
-      data: { status: "SUCCESS", recordsSynced: result.deals, completedAt: new Date() },
-    });
+    if (importType === "afspraken") {
+      const result = await importAfspraken(filePath);
+      await prisma.syncLog.update({
+        where: { id: log.id },
+        data: { status: "SUCCESS", recordsSynced: result.appointments, completedAt: new Date() },
+      });
+    } else {
+      const result = await importFromExcel(filePath);
+      await prisma.syncLog.update({
+        where: { id: log.id },
+        data: { status: "SUCCESS", recordsSynced: result.deals, completedAt: new Date() },
+      });
+    }
   } catch (e: any) {
-    console.error("[Import] Excel import failed:", e);
+    console.error(`[Import] ${importType} import failed:`, e);
     await prisma.syncLog.update({
       where: { id: log.id },
       data: { status: "FAILED", error: e.message?.slice(0, 500), completedAt: new Date() },

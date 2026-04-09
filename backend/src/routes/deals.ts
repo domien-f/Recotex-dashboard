@@ -9,19 +9,20 @@ router.use(authenticate);
 
 // List deals with filters
 router.get("/", async (req: AuthRequest, res: Response) => {
-  const { status, herkomst, dateFrom, dateTo, search, page = "1", limit = "50", reclamation, typeWerken, verantwoordelijke } = req.query;
+  const { status, herkomst, dateFrom, dateTo, dateMode, search, page = "1", limit = "50", reclamation, typeWerken, verantwoordelijke } = req.query;
 
   const where: any = {};
-  if (status) where.status = status;
-  if (herkomst) where.herkomst = herkomst;
-  if (typeWerken) where.typeWerken = typeWerken;
-  if (verantwoordelijke) where.verantwoordelijke = verantwoordelijke;
+  if (status) where.status = (status as string).includes(",") ? { in: (status as string).split(",") } : status;
+  if (herkomst) where.herkomst = (herkomst as string).includes(",") ? { in: (herkomst as string).split(",") } : herkomst;
+  if (typeWerken) where.typeWerken = (typeWerken as string).includes(",") ? { in: (typeWerken as string).split(",") } : typeWerken;
+  if (verantwoordelijke) where.verantwoordelijke = (verantwoordelijke as string).includes(",") ? { in: (verantwoordelijke as string).split(",") } : verantwoordelijke;
   if (reclamation === "true") where.OR = [{ reclamatieRedenen: { isEmpty: false } }, { phase: { startsWith: "Reclamaties" } }];
   if (reclamation === "false") { where.reclamatieRedenen = { isEmpty: true }; where.NOT = { phase: { startsWith: "Reclamaties" } }; }
   if (dateFrom || dateTo) {
-    where.dealCreatedAt = {};
-    if (dateFrom) where.dealCreatedAt.gte = new Date(dateFrom as string);
-    if (dateTo) where.dealCreatedAt.lte = new Date(dateTo as string);
+    const dateField = dateMode === "won" ? "wonAt" : "dealCreatedAt";
+    where[dateField] = {};
+    if (dateFrom) where[dateField].gte = new Date(dateFrom as string);
+    if (dateTo) where[dateField].lte = new Date(dateTo as string);
   }
   if (search) {
     where.OR = [

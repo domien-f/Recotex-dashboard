@@ -12,6 +12,7 @@ import { KpiSettingsPage } from "./pages/KpiSettings";
 import { LeadSourcesPage } from "./pages/LeadSources";
 import { InvoicesPage } from "./pages/Invoices";
 import { SettingsPage } from "./pages/Settings";
+import { TeamleaderImportPage } from "./pages/TeamleaderImport";
 import { AiAssistantPage } from "./pages/AiAssistant";
 import { ReportPage } from "./pages/Report";
 import { useAuth } from "./hooks/useAuth";
@@ -61,6 +62,7 @@ function App() {
             <Route path="/rapport" element={<ReportPage />} />
             <Route path="/facturen" element={<InvoicesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/import" element={<TeamleaderImportPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

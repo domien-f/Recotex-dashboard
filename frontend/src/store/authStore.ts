@@ -26,7 +26,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       isAdmin: () => get().user?.role === "ADMIN",
-      canEdit: () => ["ADMIN", "MANAGER"].includes(get().user?.role || ""),
+      canEdit: () => get().user?.role === "ADMIN",
     }),
     {
       name: "recotex-auth",

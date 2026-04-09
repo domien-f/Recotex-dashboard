@@ -20,18 +20,18 @@ const STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "destru
 };
 
 export function LeadsPage() {
-  const { dateFrom, dateTo, channel, status, typeWerken, verantwoordelijke } = useFilterStore();
+  const { dateFrom, dateTo, dateMode, channels, statuses, typeWerken, verantwoordelijken } = useFilterStore();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  const params: Record<string, any> = { dateFrom, dateTo, search, page, limit: 25 };
-  if (channel) params.herkomst = channel;
-  if (status) params.status = status;
-  if (typeWerken) params.typeWerken = typeWerken;
-  if (verantwoordelijke) params.verantwoordelijke = verantwoordelijke;
+  const params: Record<string, any> = { dateFrom, dateTo, dateMode, search, page, limit: 25 };
+  if (channels.length) params.herkomst = channels.join(",");
+  if (statuses.length) params.status = statuses.join(",");
+  if (typeWerken.length) params.typeWerken = typeWerken.join(",");
+  if (verantwoordelijken.length) params.verantwoordelijke = verantwoordelijken.join(",");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["deals", dateFrom, dateTo, channel, status, typeWerken, verantwoordelijke, search, page],
+    queryKey: ["deals", dateFrom, dateTo, channels.join(","), statuses.join(","), typeWerken.join(","), verantwoordelijken.join(","), search, page],
     queryFn: async () => {
       const res = await api.get("/deals", { params });
       return res.data as { deals: Deal[]; total: number };

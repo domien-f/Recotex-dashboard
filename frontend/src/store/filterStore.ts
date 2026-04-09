@@ -1,18 +1,26 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+type DateMode = "creation" | "won";
+
 interface FilterState {
   dateFrom: string;
   dateTo: string;
-  channel: string;
-  status: string;
-  typeWerken: string;
-  verantwoordelijke: string;
+  dateMode: DateMode;
+  channels: string[];
+  statuses: string[];
+  typeWerken: string[];
+  verantwoordelijken: string[];
   setDateRange: (from: string, to: string) => void;
-  setChannel: (channel: string) => void;
-  setStatus: (status: string) => void;
-  setTypeWerken: (tw: string) => void;
-  setVerantwoordelijke: (v: string) => void;
+  setDateMode: (mode: DateMode) => void;
+  toggleChannel: (channel: string) => void;
+  toggleStatus: (status: string) => void;
+  toggleTypeWerken: (tw: string) => void;
+  toggleVerantwoordelijke: (v: string) => void;
+  setChannels: (channels: string[]) => void;
+  setStatuses: (statuses: string[]) => void;
+  setTypeWerkenAll: (tw: string[]) => void;
+  setVerantwoordelijken: (v: string[]) => void;
   resetFilters: () => void;
 }
 
@@ -20,25 +28,45 @@ const now = new Date();
 const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+function toggle(arr: string[], value: string): string[] {
+  return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
+}
+
 export const useFilterStore = create<FilterState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       dateFrom: firstOfMonth,
       dateTo: today,
-      channel: "",
-      status: "",
-      typeWerken: "",
-      verantwoordelijke: "",
+      dateMode: "creation" as DateMode,
+      channels: [],
+      statuses: [],
+      typeWerken: [],
+      verantwoordelijken: [],
 
       setDateRange: (dateFrom, dateTo) => set({ dateFrom, dateTo }),
-      setChannel: (channel) => set({ channel }),
-      setStatus: (status) => set({ status }),
-      setTypeWerken: (typeWerken) => set({ typeWerken }),
-      setVerantwoordelijke: (verantwoordelijke) => set({ verantwoordelijke }),
-      resetFilters: () => set({ dateFrom: firstOfMonth, dateTo: today, channel: "", status: "", typeWerken: "", verantwoordelijke: "" }),
+      setDateMode: (dateMode) => set({ dateMode }),
+      toggleChannel: (channel) => set({ channels: toggle(get().channels, channel) }),
+      toggleStatus: (status) => set({ statuses: toggle(get().statuses, status) }),
+      toggleTypeWerken: (tw) => set({ typeWerken: toggle(get().typeWerken, tw) }),
+      toggleVerantwoordelijke: (v) => set({ verantwoordelijken: toggle(get().verantwoordelijken, v) }),
+      setChannels: (channels) => set({ channels }),
+      setStatuses: (statuses) => set({ statuses }),
+      setTypeWerkenAll: (typeWerken) => set({ typeWerken }),
+      setVerantwoordelijken: (verantwoordelijken) => set({ verantwoordelijken }),
+      resetFilters: () => set({ dateFrom: firstOfMonth, dateTo: today, dateMode: "creation" as DateMode, channels: [], statuses: [], typeWerken: [], verantwoordelijken: [] }),
     }),
     {
       name: "recotex-filters",
+      version: 3,
+      migrate: () => ({
+        dateFrom: firstOfMonth,
+        dateTo: today,
+        dateMode: "creation",
+        channels: [],
+        statuses: [],
+        typeWerken: [],
+        verantwoordelijken: [],
+      }),
     }
   )
 );
