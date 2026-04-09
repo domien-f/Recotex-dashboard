@@ -10,5 +10,6 @@ frontend/dist
 /tmp
 *.tar.gz
 *.csv
+!backend/src/data/be-postcodes.csv
 Dev info*/
 PLAN.md
