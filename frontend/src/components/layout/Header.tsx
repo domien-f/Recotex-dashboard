@@ -13,7 +13,7 @@ function toLocalDateStr(d: Date): string {
 const PRESETS = [
   { label: "Deze maand", get: () => { const n = new Date(); return { from: `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`, to: toLocalDateStr(n) }; } },
   { label: "Vorige maand", get: () => { const n = new Date(); const p = new Date(n.getFullYear(), n.getMonth() - 1, 1); const e = new Date(n.getFullYear(), n.getMonth(), 0); return { from: toLocalDateStr(p), to: toLocalDateStr(e) }; } },
-  { label: "Dit kwartaal", get: () => { const n = new Date(); const q = Math.floor(n.getMonth() / 3) * 3; return { from: `${n.getFullYear()}-${String(q + 1).padStart(2, "0")}-01`, to: toLocalDateStr(n) }; } },
+  { label: "Dit kwartaal", get: () => { const n = new Date(); const from = new Date(n.getFullYear(), n.getMonth() - 2, 1); return { from: toLocalDateStr(from), to: toLocalDateStr(n) }; } },
   { label: "Dit jaar", get: () => { const n = new Date(); return { from: `${n.getFullYear()}-01-01`, to: toLocalDateStr(n) }; } },
   { label: "Alles", get: () => ({ from: "2025-09-01", to: toLocalDateStr(new Date()) }) },
 ];
@@ -75,7 +75,7 @@ function MultiSelect({ selected, onToggle, onClear, options, placeholder }: { se
 
 export function Header() {
   const { user, logout } = useAuthStore();
-  const { dateFrom, dateTo, dateMode, channels, statuses, typeWerken, verantwoordelijken, setDateRange, setDateMode, toggleChannel, toggleStatus, toggleTypeWerken, toggleVerantwoordelijke, setChannels, setStatuses, setTypeWerkenAll, setVerantwoordelijken, resetFilters } = useFilterStore();
+  const { dateFrom, dateTo, dateMode, activePreset, channels, statuses, typeWerken, verantwoordelijken, setDateRange, setDateMode, toggleChannel, toggleStatus, toggleTypeWerken, toggleVerantwoordelijke, setChannels, setStatuses, setTypeWerkenAll, setVerantwoordelijken, resetFilters } = useFilterStore();
   const [showFilters, setShowFilters] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [pickingEnd, setPickingEnd] = useState(false);
@@ -199,14 +199,11 @@ export function Header() {
 
           {/* Presets */}
           <div className="flex items-center gap-1">
-            {PRESETS.map((p, idx) => {
+            {PRESETS.map((p) => {
               const { from, to } = p.get();
-              // Only highlight if this is the first preset matching the current range
-              const matchesRange = from === dateFrom && to === dateTo;
-              const firstMatch = PRESETS.findIndex((q) => { const r = q.get(); return r.from === dateFrom && r.to === dateTo; });
-              const active = matchesRange && firstMatch === idx;
+              const active = activePreset === p.label;
               return (
-                <button key={p.label} onClick={() => setDateRange(from, to)}
+                <button key={p.label} onClick={() => setDateRange(from, to, p.label)}
                   className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
                   {p.label}
                 </button>

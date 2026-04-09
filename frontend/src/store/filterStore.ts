@@ -7,11 +7,12 @@ interface FilterState {
   dateFrom: string;
   dateTo: string;
   dateMode: DateMode;
+  activePreset: string | null;
   channels: string[];
   statuses: string[];
   typeWerken: string[];
   verantwoordelijken: string[];
-  setDateRange: (from: string, to: string) => void;
+  setDateRange: (from: string, to: string, preset?: string) => void;
   setDateMode: (mode: DateMode) => void;
   toggleChannel: (channel: string) => void;
   toggleStatus: (status: string) => void;
@@ -38,12 +39,13 @@ export const useFilterStore = create<FilterState>()(
       dateFrom: firstOfMonth,
       dateTo: today,
       dateMode: "creation" as DateMode,
+      activePreset: "Deze maand",
       channels: [],
       statuses: [],
       typeWerken: [],
       verantwoordelijken: [],
 
-      setDateRange: (dateFrom, dateTo) => set({ dateFrom, dateTo }),
+      setDateRange: (dateFrom, dateTo, preset) => set({ dateFrom, dateTo, activePreset: preset || null }),
       setDateMode: (dateMode) => set({ dateMode }),
       toggleChannel: (channel) => set({ channels: toggle(get().channels, channel) }),
       toggleStatus: (status) => set({ statuses: toggle(get().statuses, status) }),
@@ -53,7 +55,7 @@ export const useFilterStore = create<FilterState>()(
       setStatuses: (statuses) => set({ statuses }),
       setTypeWerkenAll: (typeWerken) => set({ typeWerken }),
       setVerantwoordelijken: (verantwoordelijken) => set({ verantwoordelijken }),
-      resetFilters: () => set({ dateFrom: firstOfMonth, dateTo: today, dateMode: "creation" as DateMode, channels: [], statuses: [], typeWerken: [], verantwoordelijken: [] }),
+      resetFilters: () => set({ dateFrom: firstOfMonth, dateTo: today, dateMode: "creation" as DateMode, activePreset: "Deze maand", channels: [], statuses: [], typeWerken: [], verantwoordelijken: [] }),
     }),
     {
       name: "recotex-filters",
