@@ -8,7 +8,7 @@ import path from "path";
 // Load Belgian postcode → lat/lng lookup
 const postcodeMap = new Map<string, { lat: number; lng: number; name: string }>();
 try {
-  const csvPath = path.resolve(process.cwd(), "src/data/be-postcodes.csv");
+  const csvPath = path.resolve(__dirname, "../data/be-postcodes.csv");
   const csv = readFileSync(csvPath, "utf-8");
   for (const line of csv.split("\n")) {
     const [pc, name, lng, lat] = line.split(",");
