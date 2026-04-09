@@ -168,12 +168,15 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
         row["Reclamatie redenen"] ? String(row["Reclamatie redenen"]) : null
       );
 
+      let herkomst = row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : null;
+      if (herkomst === "Google Leads") herkomst = "Eigen lead medewerker";
+
       const dealData = {
         contactId,
         title,
         phase: fase,
         status,
-        herkomst: row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : null,
+        herkomst,
         typeWerken: row["Type werken"] ? String(row["Type werken"]).trim() : null,
         reclamatieRedenen,
         verantwoordelijke: row["Verantwoordelijke"] ? String(row["Verantwoordelijke"]).trim() : null,

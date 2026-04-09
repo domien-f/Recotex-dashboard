@@ -199,9 +199,12 @@ export function Header() {
 
           {/* Presets */}
           <div className="flex items-center gap-1">
-            {PRESETS.map((p) => {
+            {PRESETS.map((p, idx) => {
               const { from, to } = p.get();
-              const active = from === dateFrom && to === dateTo;
+              // Only highlight if this is the first preset matching the current range
+              const matchesRange = from === dateFrom && to === dateTo;
+              const firstMatch = PRESETS.findIndex((q) => { const r = q.get(); return r.from === dateFrom && r.to === dateTo; });
+              const active = matchesRange && firstMatch === idx;
               return (
                 <button key={p.label} onClick={() => setDateRange(from, to)}
                   className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>

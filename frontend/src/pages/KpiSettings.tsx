@@ -160,6 +160,84 @@ export function KpiSettingsPage() {
         </Card>
       </div>
 
+      {/* Eigen vs Extern */}
+      {channels && (
+        <Card>
+          <CardHeader><CardTitle>Eigen Leads vs Extern</CardTitle></CardHeader>
+          <CardContent>
+            {(() => {
+              const externDeals = channels.filter((ch) => thirdPartyChannels.includes(ch.channel));
+              const eigenDeals = channels.filter((ch) => !thirdPartyChannels.includes(ch.channel));
+              const externTotal = externDeals.reduce((s, ch) => s + ch.deals, 0);
+              const eigenTotal = eigenDeals.reduce((s, ch) => s + ch.deals, 0);
+              const externWon = externDeals.reduce((s, ch) => s + ch.won, 0);
+              const eigenWon = eigenDeals.reduce((s, ch) => s + ch.won, 0);
+              const externRev = externDeals.reduce((s, ch) => s + Number(ch.revenue), 0);
+              const eigenRev = eigenDeals.reduce((s, ch) => s + Number(ch.revenue), 0);
+              const externCost = externDeals.reduce((s, ch) => s + Number(ch.cost), 0);
+              const eigenCost = eigenDeals.reduce((s, ch) => s + Number(ch.cost), 0);
+              const total = externTotal + eigenTotal;
+              const eigenPct = total > 0 ? (eigenTotal / total) * 100 : 0;
+              const externPct = total > 0 ? (externTotal / total) * 100 : 0;
+
+              return (
+                <div className="space-y-6">
+                  {/* Progress bar */}
+                  <div>
+                    <div className="flex justify-between text-xs font-medium mb-2">
+                      <span className="text-primary">Eigen: {eigenPct.toFixed(1)}%</span>
+                      <span className="text-muted-foreground">Extern: {externPct.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-4 w-full rounded-full bg-muted overflow-hidden flex">
+                      <div className="h-full bg-primary transition-all" style={{ width: `${eigenPct}%` }} />
+                      <div className="h-full bg-muted-foreground/30 transition-all" style={{ width: `${externPct}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Comparison table */}
+                  <div className="grid grid-cols-2 gap-6">
+                    {[
+                      { label: "Eigen Kanalen", deals: eigenTotal, won: eigenWon, revenue: eigenRev, cost: eigenCost, channels: eigenDeals, color: "text-primary" },
+                      { label: "Externe Kanalen", deals: externTotal, won: externWon, revenue: externRev, cost: externCost, channels: externDeals, color: "text-muted-foreground" },
+                    ].map((group) => (
+                      <div key={group.label} className="space-y-3">
+                        <p className={`text-sm font-semibold ${group.color}`}>{group.label}</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-xl bg-muted/50 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Leads</p>
+                            <p className="text-lg font-bold">{group.deals}</p>
+                          </div>
+                          <div className="rounded-xl bg-muted/50 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Won</p>
+                            <p className="text-lg font-bold text-success">{group.won}</p>
+                          </div>
+                          <div className="rounded-xl bg-muted/50 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Omzet</p>
+                            <p className="text-lg font-bold">{formatCurrency(group.revenue)}</p>
+                          </div>
+                          <div className="rounded-xl bg-muted/50 p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Kost</p>
+                            <p className="text-lg font-bold">{formatCurrency(group.cost)}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          {group.channels.sort((a, b) => b.deals - a.deals).map((ch) => (
+                            <div key={ch.channel} className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">{ch.channel}</span>
+                              <span className="font-medium tabular-nums">{ch.deals} leads · {ch.won} won</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Channel KPI Table */}
       {channels && channels.filter((ch) => ch.cost > 0).length > 0 && (
         <Card>
