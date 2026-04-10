@@ -7,13 +7,10 @@ npx prisma generate
 
 echo "Running database migrations..."
 
-# First deploy: baseline existing migrations if _prisma_migrations table doesn't exist yet
-if ! npx prisma migrate deploy 2>/dev/null; then
-  echo "First migration run — baselining existing migrations..."
-  npx prisma migrate resolve --applied 20260318154840_init
-  npx prisma migrate resolve --applied 20260324130637_add_integration_credentials
-  npx prisma migrate deploy
-fi
+# Baseline existing migrations if this is the first time using migrate deploy
+npx prisma migrate resolve --applied 20260318154840_init 2>/dev/null || true
+npx prisma migrate resolve --applied 20260324130637_add_integration_credentials 2>/dev/null || true
+npx prisma migrate deploy
 
 echo "Seeding admin user..."
 npx tsx -e "
