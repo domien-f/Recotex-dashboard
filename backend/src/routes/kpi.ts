@@ -9,10 +9,13 @@ router.use(authenticate);
 
 router.get("/", async (_req: AuthRequest, res: Response) => {
   const targets = await prisma.kpiTarget.findMany({
+    where: { month: null },
     orderBy: [{ category: "asc" }, { metric: "asc" }],
     include: { creator: { select: { name: true } } },
   });
-  res.json(targets);
+  // Filter out budget metrics that are now stored per-month
+  const budgetMetrics = ["total_marketing_budget", "lead_spend_budget"];
+  res.json(targets.filter((t) => !budgetMetrics.includes(t.metric)));
 });
 
 // Upsert monthly budget targets (total_marketing_budget / lead_spend_budget)

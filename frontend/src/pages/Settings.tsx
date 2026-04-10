@@ -823,9 +823,11 @@ function KpiSettingsTab() {
     setSaving(true);
     setSaved(false);
     try {
+      const budgetMetrics = BUDGET_METRICS.map((b) => b.metric);
+      const nonBudgetTargets = targets?.filter((t) => !budgetMetrics.includes(t.metric));
       for (const field of KPI_FIELDS) {
         const val = parseFloat(values[field.metric] || "0");
-        const existing = targets?.find((t) => t.metric === field.metric);
+        const existing = nonBudgetTargets?.find((t) => t.metric === field.metric);
         if (existing) {
           await api.patch(`/kpi/${existing.id}`, { targetValue: val });
         } else {
