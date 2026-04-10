@@ -1,8 +1,11 @@
 #!/bin/sh
 set -e
 
-echo "Running database migrations..."
+echo "Generating Prisma client..."
 cd /app/backend
+npx prisma generate
+
+echo "Running database migrations..."
 
 # First deploy: baseline existing migrations if _prisma_migrations table doesn't exist yet
 if ! npx prisma migrate deploy 2>/dev/null; then
