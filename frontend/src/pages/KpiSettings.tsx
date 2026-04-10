@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useMetricsOverview, useChannelMetrics } from "@/hooks/useMetrics";
+import { useFilterStore } from "@/store/filterStore";
 import api from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { CheckCircle, AlertTriangle, XCircle } from "lucide-react";
@@ -10,6 +11,27 @@ interface KpiTarget {
   id: string;
   metric: string;
   targetValue: number;
+  month?: string | null;
+}
+
+function useBudgetTarget(metric: string): number | null {
+  const { dateFrom, dateTo } = useFilterStore();
+  const { data: targets } = useQuery<KpiTarget[]>({
+    queryKey: ["kpi-budget", metric],
+    queryFn: async () => (await api.get(`/kpi/budget/${metric}`)).data,
+  });
+
+  if (!targets?.length) return null;
+
+  // Sum budget targets for months within the filtered range
+  const from = dateFrom.slice(0, 7); // "2026-04"
+  const to = dateTo.slice(0, 7);
+  return targets.reduce((sum, t) => {
+    if (!t.month) return sum;
+    const ym = t.month.slice(0, 7);
+    if (ym >= from && ym <= to) return sum + Number(t.targetValue);
+    return sum;
+  }, 0) || null;
 }
 
 const KPI_DEFS: Record<string, {
@@ -50,7 +72,12 @@ export function KpiSettingsPage() {
     queryFn: async () => (await api.get("/kpi")).data,
   });
 
+  const marketingBudget = useBudgetTarget("total_marketing_budget");
+  const leadSpendBudget = useBudgetTarget("lead_spend_budget");
+
   const t = (metric: string): number | null => {
+    if (metric === "total_marketing_budget") return marketingBudget;
+    if (metric === "lead_spend_budget") return leadSpendBudget;
     const found = targets?.find((x) => x.metric === metric);
     return found ? Number(found.targetValue) : null;
   };

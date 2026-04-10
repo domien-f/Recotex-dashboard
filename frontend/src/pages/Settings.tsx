@@ -677,8 +677,6 @@ function ProfielTab() {
 // ─── KPI Settings Tab ───
 
 const KPI_FIELDS = [
-  { metric: "total_marketing_budget", label: "Total Marketing Budget (incl overhead)", unit: "€", placeholder: "1200000" },
-  { metric: "lead_spend_budget", label: "Lead Spend Budget", unit: "€", placeholder: "800000" },
   { metric: "lead_spend_roi", label: "Lead Spend ROI (target multiplier)", unit: "x", placeholder: "16.67" },
   { metric: "kpa", label: "KPA — Kost Per Afspraak", unit: "€", placeholder: "120" },
   { metric: "coa_overachieved", label: "COA — Overachieved (groen)", unit: "€", placeholder: "600" },
@@ -686,6 +684,118 @@ const KPI_FIELDS = [
   { metric: "coa_acceptable", label: "COA — Acceptable (oranje)", unit: "€", placeholder: "1000" },
   { metric: "own_leads_percentage", label: "Eigen Leads %", unit: "%", placeholder: "50" },
 ];
+
+const BUDGET_METRICS = [
+  { metric: "total_marketing_budget", label: "Total Marketing Budget (incl overhead)", placeholder: "100000" },
+  { metric: "lead_spend_budget", label: "Lead Spend Budget", placeholder: "65000" },
+];
+
+function generateMonths(): string[] {
+  // Sept 2025 → Dec 2026
+  const months: string[] = [];
+  for (let y = 2025; y <= 2026; y++) {
+    const startM = y === 2025 ? 8 : 0; // Sept=8 for 2025, Jan=0 for 2026
+    const endM = y === 2026 ? 11 : 11;
+    for (let m = startM; m <= endM; m++) {
+      months.push(`${y}-${String(m + 1).padStart(2, "0")}`);
+    }
+  }
+  return months;
+}
+
+const ALL_MONTHS = generateMonths();
+
+function formatMonthLabel(ym: string): string {
+  const d = new Date(ym + "-15");
+  return d.toLocaleDateString("nl-BE", { month: "short", year: "numeric" });
+}
+
+function MonthlyBudgetGrid({ metric, label, placeholder }: { metric: string; label: string; placeholder: string }) {
+  const queryClient = useQueryClient();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const { data: targets, isLoading } = useQuery<{ id: string; metric: string; targetValue: number; month: string }[]>({
+    queryKey: ["kpi-budget", metric],
+    queryFn: async () => (await api.get(`/kpi/budget/${metric}`)).data,
+  });
+
+  useEffect(() => {
+    if (targets && Object.keys(values).length === 0) {
+      const v: Record<string, string> = {};
+      for (const t of targets) {
+        const ym = t.month.slice(0, 7); // "2026-04-01" → "2026-04"
+        v[ym] = String(t.targetValue);
+      }
+      setValues(v);
+    }
+  }, [targets]);
+
+  const total = ALL_MONTHS.reduce((s, m) => s + (parseFloat(values[m] || "0") || 0), 0);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const months = ALL_MONTHS
+        .filter((m) => values[m] && parseFloat(values[m]) > 0)
+        .map((m) => ({ month: m, value: parseFloat(values[m]) }));
+      await api.put("/kpi/budget", { metric, months });
+      queryClient.invalidateQueries({ queryKey: ["kpi-budget", metric] });
+      queryClient.invalidateQueries({ queryKey: ["kpi-targets"] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      console.error("Budget save error:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) return <div className="flex h-16 items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm">{label}</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Totaal: <span className="font-semibold text-foreground">€{total.toLocaleString("nl-BE", { minimumFractionDigits: 0 })}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {saved && <span className="text-xs text-success font-medium">Opgeslagen</span>}
+            <Button size="sm" variant="outline" onClick={handleSave} disabled={saving}>
+              {saving ? "Opslaan..." : "Opslaan"}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {ALL_MONTHS.map((m) => (
+            <div key={m}>
+              <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{formatMonthLabel(m)}</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">€</span>
+                <Input
+                  type="number"
+                  step="any"
+                  className="h-8 text-sm"
+                  value={values[m] || ""}
+                  onChange={(e) => setValues({ ...values, [m]: e.target.value })}
+                  placeholder={placeholder}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function KpiSettingsTab() {
   const queryClient = useQueryClient();
@@ -735,40 +845,53 @@ function KpiSettingsTab() {
   if (isLoading) return <div className="flex h-32 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-foreground">KPI Target Waarden</h2>
-        <div className="flex items-center gap-3">
-          {saved && <span className="text-sm text-success font-medium">Opgeslagen</span>}
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? "Opslaan..." : "Opslaan"}
-          </Button>
+    <div className="space-y-6">
+      {/* Monthly Budget Grids */}
+      <div>
+        <h2 className="text-lg font-semibold text-foreground mb-4">Projected Budget per Maand</h2>
+        <div className="space-y-4">
+          {BUDGET_METRICS.map((bm) => (
+            <MonthlyBudgetGrid key={bm.metric} {...bm} />
+          ))}
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {KPI_FIELDS.map((field) => (
-              <div key={field.metric}>
-                <label className="mb-1.5 block text-xs font-semibold text-foreground">{field.label}</label>
-                <div className="flex items-center gap-2">
-                  {field.unit === "€" && <span className="text-sm text-muted-foreground">€</span>}
-                  <Input
-                    type="number"
-                    step="any"
-                    value={values[field.metric] || ""}
-                    onChange={(e) => setValues({ ...values, [field.metric]: e.target.value })}
-                    placeholder={field.placeholder}
-                  />
-                  {field.unit === "x" && <span className="text-sm text-muted-foreground">x</span>}
-                  {field.unit === "%" && <span className="text-sm text-muted-foreground">%</span>}
-                </div>
-              </div>
-            ))}
+      {/* Other KPI Targets */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground">KPI Target Waarden</h2>
+          <div className="flex items-center gap-3">
+            {saved && <span className="text-sm text-success font-medium">Opgeslagen</span>}
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? "Opslaan..." : "Opslaan"}
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              {KPI_FIELDS.map((field) => (
+                <div key={field.metric}>
+                  <label className="mb-1.5 block text-xs font-semibold text-foreground">{field.label}</label>
+                  <div className="flex items-center gap-2">
+                    {field.unit === "€" && <span className="text-sm text-muted-foreground">€</span>}
+                    <Input
+                      type="number"
+                      step="any"
+                      value={values[field.metric] || ""}
+                      onChange={(e) => setValues({ ...values, [field.metric]: e.target.value })}
+                      placeholder={field.placeholder}
+                    />
+                    {field.unit === "x" && <span className="text-sm text-muted-foreground">x</span>}
+                    {field.unit === "%" && <span className="text-sm text-muted-foreground">%</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

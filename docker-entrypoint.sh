@@ -1,9 +1,16 @@
 #!/bin/sh
 set -e
 
-echo "Syncing database schema..."
+echo "Running database migrations..."
 cd /app/backend
-npx prisma db push --accept-data-loss
+
+# First deploy: baseline existing migrations if _prisma_migrations table doesn't exist yet
+if ! npx prisma migrate deploy 2>/dev/null; then
+  echo "First migration run — baselining existing migrations..."
+  npx prisma migrate resolve --applied 20260318154840_init
+  npx prisma migrate resolve --applied 20260324130637_add_integration_credentials
+  npx prisma migrate deploy
+fi
 
 echo "Seeding admin user..."
 npx tsx -e "

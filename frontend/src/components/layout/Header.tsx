@@ -13,7 +13,7 @@ function toLocalDateStr(d: Date): string {
 const PRESETS = [
   { label: "Deze maand", get: () => { const n = new Date(); return { from: `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`, to: toLocalDateStr(n) }; } },
   { label: "Vorige maand", get: () => { const n = new Date(); const p = new Date(n.getFullYear(), n.getMonth() - 1, 1); const e = new Date(n.getFullYear(), n.getMonth(), 0); return { from: toLocalDateStr(p), to: toLocalDateStr(e) }; } },
-  { label: "Dit kwartaal", get: () => { const n = new Date(); const from = new Date(n.getFullYear(), n.getMonth() - 2, 1); return { from: toLocalDateStr(from), to: toLocalDateStr(n) }; } },
+  { label: "Dit kwartaal", get: () => { const n = new Date(); const q = Math.floor(n.getMonth() / 3); const from = new Date(n.getFullYear(), q * 3, 1); const to = new Date(n.getFullYear(), q * 3 + 3, 0); return { from: toLocalDateStr(from), to: toLocalDateStr(to) }; } },
   { label: "Dit jaar", get: () => { const n = new Date(); return { from: `${n.getFullYear()}-01-01`, to: toLocalDateStr(n) }; } },
   { label: "Alles", get: () => ({ from: "2025-09-01", to: toLocalDateStr(new Date()) }) },
 ];

@@ -225,6 +225,7 @@ model KpiTarget {
   metric      String
   targetValue Decimal   @db.Decimal(12, 4) @map("target_value")
   channel     String?
+  month       DateTime? @db.Date
   period      KpiPeriod @default(MONTHLY)
   createdBy   String    @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -232,6 +233,7 @@ model KpiTarget {
 
   creator User @relation(fields: [createdBy], references: [id])
 
+  @@unique([metric, month], name: "metric_month")
   @@index([category])
   @@index([metric])
   @@map("kpi_targets")
