@@ -20,7 +20,8 @@ function deriveStatus(fase: string, slaagkans: number): "NEW" | "QUALIFIED" | "A
       lower.includes("referenties")) return "WON";
 
   if (lower.includes("meeting gepland") || lower.includes("offerte verzonden") ||
-      lower.includes("ingepland") || lower.includes("negotiatie")) return "APPOINTMENT";
+      lower.includes("ingepland") || lower.includes("negotiatie") ||
+      lower.includes("technisch gevalideerd") || lower.includes("technisch geblokkeerd")) return "APPOINTMENT";
 
   if (lower.includes("eerste contact") || lower.includes("tweede contact") ||
       lower.includes("derde contact") || lower.includes("opvolging") ||
@@ -209,8 +210,8 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
   await prisma.appointment.deleteMany({});
 
   const APPOINTMENT_PHASES = [
-    'Meeting gepland', 'Negotiatie', 'Opvolging LT', 'Opvolging adviseur',
-    'Aanvaard', 'Gevalideerd', 'Voorschot verstuurd', 'Voorschotfactuur betaald',
+    'Meeting gepland', 'Negotiatie', 'Opvolging adviseur',
+    'Aanvaard', 'Technisch Gevalideerd', 'Technisch Geblokkeerd', 'Voorschot verstuurd', 'Voorschotfactuur betaald',
     'Offerte verzonden', 'Ingepland', 'Eindfactuur verstuurd',
     'Tweede voorschotfactuur verstuurd', 'Tweede voorschotfactuur betaald', 'Afsluit dossier',
     'Geweigerd',

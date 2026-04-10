@@ -342,7 +342,7 @@ router.get("/lead-sources", async (req: AuthRequest, res: Response) => {
   const contactMap = new Map<string, { herkomst: string; hasWon: boolean; hasReclamation: boolean }>();
   for (const d of allFilteredDeals) {
     const existing = contactMap.get(d.contactId);
-    const isReclamation = (d.reclamatieRedenen?.length > 0) || d.phase?.startsWith("Reclamaties");
+    const isReclamation = (d.reclamatieRedenen?.length ?? 0) > 0 || d.phase?.startsWith("Reclamaties") === true;
     if (existing) {
       if (d.status === "WON") existing.hasWon = true;
       if (isReclamation) existing.hasReclamation = true;
@@ -428,7 +428,7 @@ router.get("/reclamations", async (req: AuthRequest, res: Response) => {
   }>();
 
   for (const deal of allDeals) {
-    const isReclamation = (deal.reclamatieRedenen?.length > 0) || deal.phase?.startsWith("Reclamaties");
+    const isReclamation = (deal.reclamatieRedenen?.length ?? 0) > 0 || deal.phase?.startsWith("Reclamaties") === true;
     const reasons = deal.reclamatieRedenen?.length > 0
       ? deal.reclamatieRedenen
       : deal.phase?.startsWith("Reclamaties") ? [deal.phase!] : [];
