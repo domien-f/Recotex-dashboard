@@ -114,7 +114,7 @@ function mapStatus(phaseName: string, dealStatus: string, probability: number): 
   const lower = phaseName.toLowerCase();
   if (lower.includes("reclamati")) return "LOST";
   if (lower.includes("voorschot") || lower.includes("aanvaard") || lower.includes("klaar voor")) return "WON";
-  if (lower.includes("meeting") || lower.includes("offerte") || lower.includes("ingepland") || lower.includes("negotiatie") || lower.includes("technisch gevalideerd") || lower.includes("technisch geblokkeerd")) return "APPOINTMENT";
+  if (lower.includes("meeting") || lower.includes("offerte") || lower.includes("ingepland") || lower.includes("negotiatie")) return "APPOINTMENT";
   if (lower.includes("contact") || lower.includes("opvolging") || lower.includes("gevalideerd")) return "QUALIFIED";
   return "NEW";
 }
