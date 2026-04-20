@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useMetricsOverview, useChannelMetrics } from "@/hooks/useMetrics";
 import { useFilterStore } from "@/store/filterStore";
 import api from "@/lib/api";
-import { formatCurrency, isFreeChannel } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { CheckCircle, AlertTriangle, XCircle } from "lucide-react";
 import { MetricLabel } from "@/components/ui/metric-label";
 
