@@ -172,6 +172,9 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
       let herkomst = row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : null;
       if (herkomst === "Google Leads") herkomst = "Eigen lead medewerker";
 
+      // Skip non-lead entries like "EXTRA WERKEN"
+      if (herkomst === "EXTRA WERKEN") continue;
+
       const dealData = {
         contactId,
         title,

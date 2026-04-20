@@ -4,6 +4,7 @@ import { authenticate, AuthRequest } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 
 const router = Router();
+const EXCLUDED_HERKOMST = ["EXTRA WERKEN"];
 
 router.use(authenticate);
 
@@ -14,6 +15,7 @@ router.get("/", async (req: AuthRequest, res: Response) => {
   const where: any = {};
   if (status) where.status = (status as string).includes(",") ? { in: (status as string).split(",") } : status;
   if (herkomst) where.herkomst = (herkomst as string).includes(",") ? { in: (herkomst as string).split(",") } : herkomst;
+  else where.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (typeWerken) where.typeWerken = (typeWerken as string).includes(",") ? { in: (typeWerken as string).split(",") } : typeWerken;
   if (verantwoordelijke) where.verantwoordelijke = (verantwoordelijke as string).includes(",") ? { in: (verantwoordelijke as string).split(",") } : verantwoordelijke;
   if (reclamation === "true") where.OR = [{ reclamatieRedenen: { isEmpty: false } }, { phase: { startsWith: "Reclamaties" } }];
@@ -54,6 +56,7 @@ router.get("/stats", async (req: AuthRequest, res: Response) => {
 
   const where: any = {};
   if (herkomst) where.herkomst = herkomst;
+  else where.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (dateFrom || dateTo) {
     where.dealCreatedAt = {};
     if (dateFrom) where.dealCreatedAt.gte = new Date(dateFrom as string);
@@ -124,7 +127,7 @@ router.patch("/:id", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, r
 // Filter options (MUST be before /:id)
 router.get("/filter-options", async (_req: AuthRequest, res: Response) => {
   const [channels, statuses, typeWerken, verantwoordelijken] = await Promise.all([
-    prisma.deal.findMany({ select: { herkomst: true }, distinct: ["herkomst"], where: { herkomst: { not: null } }, orderBy: { herkomst: "asc" } }),
+    prisma.deal.findMany({ select: { herkomst: true }, distinct: ["herkomst"], where: { herkomst: { not: null, notIn: EXCLUDED_HERKOMST } }, orderBy: { herkomst: "asc" } }),
     prisma.deal.findMany({ select: { status: true }, distinct: ["status"] }),
     prisma.deal.findMany({ select: { typeWerken: true }, distinct: ["typeWerken"], where: { typeWerken: { not: null } }, orderBy: { typeWerken: "asc" } }),
     prisma.deal.findMany({ select: { verantwoordelijke: true }, distinct: ["verantwoordelijke"], where: { verantwoordelijke: { not: null } }, orderBy: { verantwoordelijke: "asc" } }),

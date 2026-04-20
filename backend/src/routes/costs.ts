@@ -138,9 +138,11 @@ router.delete("/:id", requireRole("ADMIN"), async (req: AuthRequest, res: Respon
 router.get("/status-matrix", async (req: AuthRequest, res: Response) => {
   const { dateFrom, dateTo } = req.query;
 
-  // Get all channels that have deals
+  // Get all channels that have deals (excluding non-lead sources)
+  const EXCLUDED_HERKOMST = ["EXTRA WERKEN"];
   const dealChannels = await prisma.deal.groupBy({
     by: ["herkomst"],
+    where: { herkomst: { notIn: EXCLUDED_HERKOMST } },
     _count: true,
     orderBy: { _count: { herkomst: "desc" } },
   });

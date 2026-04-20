@@ -14,6 +14,8 @@ function dateField(dateMode: unknown): string {
   return dateMode === "won" ? "wonAt" : "dealCreatedAt";
 }
 
+const EXCLUDED_HERKOMST = ["EXTRA WERKEN"];
+
 router.use(authenticate);
 
 // Overview: all key metrics
@@ -23,6 +25,7 @@ router.get("/overview", async (req: AuthRequest, res: Response) => {
   const dealWhere: any = {};
   const costWhere: any = {};
   if (herkomst) dealWhere.herkomst = multiFilter(herkomst);
+  else dealWhere.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (status) dealWhere.status = multiFilter(status);
   if (typeWerken) dealWhere.typeWerken = multiFilter(typeWerken);
   if (verantwoordelijke) dealWhere.verantwoordelijke = multiFilter(verantwoordelijke);
@@ -120,6 +123,7 @@ router.get("/channels", async (req: AuthRequest, res: Response) => {
   const df = dateField(dateMode);
   const dealWhere: any = dateFrom || dateTo ? { [df]: dateFilter } : {};
   if (herkomst) dealWhere.herkomst = multiFilter(herkomst);
+  else dealWhere.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (status) dealWhere.status = multiFilter(status);
   if (typeWerken) dealWhere.typeWerken = multiFilter(typeWerken);
   if (verantwoordelijke) dealWhere.verantwoordelijke = multiFilter(verantwoordelijke);
@@ -271,7 +275,7 @@ router.get("/cost-vs-revenue", async (req: AuthRequest, res: Response) => {
   const { dateFrom, dateTo } = req.query;
 
   const costWhere: any = {};
-  const dealWhere: any = {};
+  const dealWhere: any = { herkomst: { notIn: EXCLUDED_HERKOMST } };
   if (dateFrom || dateTo) {
     const df: any = {};
     if (dateFrom) df.gte = new Date(dateFrom as string);
@@ -323,6 +327,7 @@ router.get("/lead-sources", async (req: AuthRequest, res: Response) => {
     if (dateTo) where[df].lte = new Date(dateTo as string);
   }
   if (herkomst) where.herkomst = multiFilter(herkomst);
+  else where.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (status) where.status = multiFilter(status);
   if (typeWerken) where.typeWerken = multiFilter(typeWerken);
   if (verantwoordelijke) where.verantwoordelijke = multiFilter(verantwoordelijke);
@@ -399,6 +404,7 @@ router.get("/reclamations", async (req: AuthRequest, res: Response) => {
     if (dateTo) where[df].lte = new Date(dateTo as string);
   }
   if (herkomst) where.herkomst = multiFilter(herkomst);
+  else where.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (status) where.status = multiFilter(status);
   if (typeWerken) where.typeWerken = multiFilter(typeWerken);
   if (verantwoordelijke) where.verantwoordelijke = multiFilter(verantwoordelijke);

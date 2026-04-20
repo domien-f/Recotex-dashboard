@@ -104,7 +104,7 @@ router.post("/chat", async (req: AuthRequest, res: Response) => {
 async function buildDataContext(): Promise<string> {
   const [dealStats, channelStats, costData, appointmentStats] = await Promise.all([
     prisma.deal.groupBy({ by: ["status"], _count: true, _sum: { revenue: true } }),
-    prisma.deal.groupBy({ by: ["herkomst"], _count: true, _sum: { revenue: true } }),
+    prisma.deal.groupBy({ by: ["herkomst"], where: { herkomst: { notIn: ["EXTRA WERKEN"] } }, _count: true, _sum: { revenue: true } }),
     prisma.cost.findMany({ select: { channel: true, amount: true, date: true, source: true }, orderBy: { date: "desc" } }),
     prisma.appointment.groupBy({ by: ["channel"], _count: true }),
   ]);
@@ -112,7 +112,7 @@ async function buildDataContext(): Promise<string> {
   const monthlyDeals = await prisma.$queryRaw`
     SELECT to_char(deal_created_at, 'YYYY-MM') as month, herkomst, status,
       COUNT(*)::int as count, COALESCE(SUM(revenue), 0) as revenue
-    FROM deals WHERE deal_created_at >= '2025-09-01'
+    FROM deals WHERE deal_created_at >= '2025-09-01' AND (herkomst IS NULL OR herkomst != 'EXTRA WERKEN')
     GROUP BY 1, 2, 3 ORDER BY 1, 2
   ` as any[];
 
@@ -134,7 +134,7 @@ async function buildDataContext(): Promise<string> {
       SELECT contact_id, herkomst,
         bool_or(status = 'WON') as has_won,
         bool_or(reclamatie_redenen != '{}' OR phase LIKE 'Reclamaties%') as has_reclamation
-      FROM deals WHERE deal_created_at >= '2025-09-01'
+      FROM deals WHERE deal_created_at >= '2025-09-01' AND (herkomst IS NULL OR herkomst != 'EXTRA WERKEN')
       GROUP BY contact_id, herkomst
     )
     SELECT herkomst, COUNT(*)::int as total,

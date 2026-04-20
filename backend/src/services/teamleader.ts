@@ -8,6 +8,7 @@ const HERKOMST_CF = "07f4756a-c0db-0e41-8f55-df9dd1e7f9c7";
 const MEETING_TYPE_ID = "93eb57c8-96e3-0883-bb1f-0eff9277bc80";
 const RECLAMATIE_CF = "279284ef-44a7-0f50-985b-5d367207cedc";
 const TYPE_WERKEN_CF = "5eee3367-f513-0ae8-9056-57e5c7a7ca98";
+const EXCLUDED_HERKOMST = ["EXTRA WERKEN"];
 
 const CLIENT_ID = process.env.TEAMLEADER_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.TEAMLEADER_CLIENT_SECRET || "";
@@ -181,6 +182,12 @@ export async function syncAll(prisma: PrismaClient) {
       const cfs = d.custom_fields || [];
 
       const herkomst = cfs.find((f: any) => f.definition.id === HERKOMST_CF)?.value || null;
+
+      // Skip deals that are not real leads (e.g. "EXTRA WERKEN")
+      if (herkomst && EXCLUDED_HERKOMST.includes(herkomst)) {
+        continue;
+      }
+
       const reclamatieRedenen = cfs.find((f: any) => f.definition.id === RECLAMATIE_CF)?.value || [];
       const typeWerken = cfs.find((f: any) => f.definition.id === TYPE_WERKEN_CF)?.value || null;
 
