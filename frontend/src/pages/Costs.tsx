@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/store/authStore";
 import { useMetricsOverview, useChannelMetrics, useCostVsRevenue } from "@/hooks/useMetrics";
 import api from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, isFreeChannel } from "@/lib/utils";
 import { Euro, TrendingUp, TrendingDown, Wallet, ArrowUpDown, CalendarCheck, HelpCircle, X, Settings, BarChart } from "lucide-react";
 import { MetricLabel } from "@/components/ui/metric-label";
 import {
@@ -176,6 +176,8 @@ function AnalyticsTab() {
               </thead>
               <tbody>
                 {(channels || []).filter((ch) => ch.deals > 0).sort((a, b) => b.cost - a.cost || b.deals - a.deals).map((ch) => {
+                  const free = isFreeChannel(ch.channel);
+                  const nvt = <span className="text-xs text-muted-foreground/60">NVT</span>;
                   const costVsRev = ch.revenue > 0 ? ((ch.cost / ch.revenue) * 100) : 0;
                   return (
                     <tr key={ch.channel} className="border-b border-border/30 hover:bg-muted/50">
@@ -183,18 +185,18 @@ function AnalyticsTab() {
                         <div className="flex items-center gap-2.5">
                           <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHANNEL_COLORS[ch.channel] || "#94a3b8" }} />
                           <span className="font-medium text-foreground">{ch.channel}</span>
-                          <CostCoverageBadge channel={ch.channel} costMonths={ch.costMonths} totalMonths={ch.totalMonths} costComplete={ch.costComplete} missingMonths={ch.missingMonths} cost={ch.cost} deals={ch.deals} invoiceCoverage={ch.invoiceCoverage} />
+                          {!free && <CostCoverageBadge channel={ch.channel} costMonths={ch.costMonths} totalMonths={ch.totalMonths} costComplete={ch.costComplete} missingMonths={ch.missingMonths} cost={ch.cost} deals={ch.deals} invoiceCoverage={ch.invoiceCoverage} />}
                         </div>
                       </td>
                       <td className="py-3.5 text-right tabular-nums">{ch.deals}</td>
                       <td className="py-3.5 text-right font-medium tabular-nums text-success">{ch.won}</td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.cost > 0 ? formatCurrency(ch.cost) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
+                      <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.cost) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
                       <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.cost > 0 ? formatCurrency(ch.cpl) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.cost > 0 ? formatCurrency(ch.kpa) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.cost > 0 ? formatCurrency(ch.coa) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
-                      <td className="py-3.5 text-right">{ch.cost > 0 ? <span className={`font-semibold tabular-nums ${parseFloat(ch.roi) >= 5 ? "text-success" : parseFloat(ch.roi) >= 1 ? "text-primary" : "text-destructive"}`}>{ch.roi}x</span> : <span className="text-muted-foreground">-</span>}</td>
-                      <td className="py-3.5 text-right">{ch.cost > 0 && ch.revenue > 0 ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${costVsRev < 10 ? "bg-success/10 text-success" : costVsRev < 30 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"}`}>{costVsRev.toFixed(1)}%</span> : <span className="text-muted-foreground">-</span>}</td>
+                      <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.cpl) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
+                      <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.kpa) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
+                      <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.coa) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
+                      <td className="py-3.5 text-right">{free ? nvt : ch.cost > 0 ? <span className={`font-semibold tabular-nums ${parseFloat(ch.roi) >= 5 ? "text-success" : parseFloat(ch.roi) >= 1 ? "text-primary" : "text-destructive"}`}>{ch.roi}x</span> : <span className="text-muted-foreground">-</span>}</td>
+                      <td className="py-3.5 text-right">{free ? nvt : ch.cost > 0 && ch.revenue > 0 ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${costVsRev < 10 ? "bg-success/10 text-success" : costVsRev < 30 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"}`}>{costVsRev.toFixed(1)}%</span> : <span className="text-muted-foreground">-</span>}</td>
                     </tr>
                   );
                 })}

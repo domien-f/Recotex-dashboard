@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useWonDeals } from "@/hooks/useDeals";
 import { useChannelMetrics, useMetricsOverview } from "@/hooks/useMetrics";
-import { formatCurrency, formatPercent, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatPercent, formatNumber, isFreeChannel } from "@/lib/utils";
 import { Trophy, Wallet, TrendingUp, Clock, Download } from "lucide-react";
 import { exportCSV } from "@/lib/export";
 import { MetricLabel } from "@/components/ui/metric-label";
@@ -143,17 +143,20 @@ export function WonLeadsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {wonChannels.map((ch) => (
-                    <tr key={ch.channel} className="border-b border-border/30 transition-colors hover:bg-muted/50">
-                      <td className="py-3.5"><div className="flex items-center gap-2.5"><div className="h-2 w-2 rounded-full bg-success" /><span className="font-medium text-foreground">{ch.channel}</span></div></td>
-                      <td className="py-3.5 text-right font-medium tabular-nums text-success">{ch.won}</td>
-                      <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
-                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(ch.avgRevenuePerDeal)}</td>
-                      <td className="py-3.5 text-right"><span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">{formatPercent(ch.winRate)}</span></td>
-                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(ch.coa)}</td>
-                      <td className="py-3.5 text-right"><span className="font-semibold tabular-nums text-primary">{ch.roi}x</span></td>
-                    </tr>
-                  ))}
+                  {wonChannels.map((ch) => {
+                    const free = isFreeChannel(ch.channel);
+                    return (
+                      <tr key={ch.channel} className="border-b border-border/30 transition-colors hover:bg-muted/50">
+                        <td className="py-3.5"><div className="flex items-center gap-2.5"><div className="h-2 w-2 rounded-full bg-success" /><span className="font-medium text-foreground">{ch.channel}</span></div></td>
+                        <td className="py-3.5 text-right font-medium tabular-nums text-success">{ch.won}</td>
+                        <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
+                        <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(ch.avgRevenuePerDeal)}</td>
+                        <td className="py-3.5 text-right"><span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">{formatPercent(ch.winRate)}</span></td>
+                        <td className="py-3.5 text-right tabular-nums text-muted-foreground">{free ? <span className="text-xs text-muted-foreground/60">NVT</span> : formatCurrency(ch.coa)}</td>
+                        <td className="py-3.5 text-right">{free ? <span className="text-xs text-muted-foreground/60">NVT</span> : <span className="font-semibold tabular-nums text-primary">{ch.roi}x</span>}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

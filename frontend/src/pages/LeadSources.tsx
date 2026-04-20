@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { useChannelMetrics } from "@/hooks/useMetrics";
 import { useFilterStore } from "@/store/filterStore";
 import api from "@/lib/api";
-import { formatCurrency, formatPercent, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatPercent, formatNumber, isFreeChannel } from "@/lib/utils";
 import { MapPin, TrendingUp, BarChart3, Users, Layers } from "lucide-react";
 import { MetricLabel } from "@/components/ui/metric-label";
 import {
@@ -265,9 +265,9 @@ export function LeadSourcesPage() {
                         ) : "-"}
                       </td>
                       <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
-                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{ch.cost > 0 ? formatCurrency(ch.cpl) : "-"}</td>
+                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{isFreeChannel(ch.channel) ? <span className="text-xs text-muted-foreground/60">NVT</span> : ch.cost > 0 ? formatCurrency(ch.cpl) : "-"}</td>
                       <td className="py-3.5 text-right">
-                        {ch.cost > 0 ? (
+                        {isFreeChannel(ch.channel) ? <span className="text-xs text-muted-foreground/60">NVT</span> : ch.cost > 0 ? (
                           <span className={`font-semibold tabular-nums ${parseFloat(ch.roi) >= 5 ? "text-success" : parseFloat(ch.roi) >= 1 ? "text-primary" : "text-destructive"}`}>{ch.roi}x</span>
                         ) : "-"}
                       </td>

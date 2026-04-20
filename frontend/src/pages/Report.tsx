@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useFilterStore } from "@/store/filterStore";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
-import { formatCurrency, formatPercent, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatPercent, formatNumber, isFreeChannel } from "@/lib/utils";
 import { Download, Loader2, Sparkles, AlertTriangle, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ReactMarkdown from "react-markdown";
@@ -319,7 +319,10 @@ Gebruik concrete cijfers uit de data. Nederlands. ${tone}. GEEN emojis gebruiken
           <AiBox text={ai.costs} />
 
           <p className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-3">Kosten Detail per Kanaal</p>
-          <T h={["Kanaal", "Kosten", "Omzet", "CPL", "KPA", "COA", "ROI"]} r={topROI.map((ch) => [ch.channel, formatCurrency(ch.cost), formatCurrency(ch.revenue), formatCurrency(ch.cpl), formatCurrency(ch.kpa), formatCurrency(ch.coa), `${ch.roi}x`])} />
+          <T h={["Kanaal", "Kosten", "Omzet", "CPL", "KPA", "COA", "ROI"]} r={topROI.map((ch) => {
+            const free = isFreeChannel(ch.channel);
+            return [ch.channel, free ? "NVT" : formatCurrency(ch.cost), formatCurrency(ch.revenue), free ? "NVT" : formatCurrency(ch.cpl), free ? "NVT" : formatCurrency(ch.kpa), free ? "NVT" : formatCurrency(ch.coa), free ? "NVT" : `${ch.roi}x`];
+          })} />
 
           {cvr && cvr.length > 0 && (
             <>
@@ -472,12 +475,16 @@ Gebruik concrete cijfers uit de data. Nederlands. ${tone}. GEEN emojis gebruiken
             in de rapportageperiode. Kanalen zonder kosten data tonen "-" voor kosten-gerelateerde metrics.
           </BodyText>
 
-          <T h={["Kanaal", "Deals", "Won", "Win%", "Afspr.", "Omzet", "Kosten", "CPL", "KPA", "ROI"]} r={top.map((ch) => [
-            ch.channel, ch.deals, ch.won, formatPercent(ch.winRate), ch.appointments,
-            formatCurrency(ch.revenue), ch.cost > 0 ? formatCurrency(ch.cost) : "-",
-            ch.cost > 0 ? formatCurrency(ch.cpl) : "-", ch.cost > 0 ? formatCurrency(ch.kpa) : "-",
-            ch.cost > 0 ? `${ch.roi}x` : "-",
-          ])} />
+          <T h={["Kanaal", "Deals", "Won", "Win%", "Afspr.", "Omzet", "Kosten", "CPL", "KPA", "ROI"]} r={top.map((ch) => {
+            const free = isFreeChannel(ch.channel);
+            return [
+              ch.channel, ch.deals, ch.won, formatPercent(ch.winRate), ch.appointments,
+              formatCurrency(ch.revenue), free ? "NVT" : ch.cost > 0 ? formatCurrency(ch.cost) : "-",
+              free ? "NVT" : ch.cost > 0 ? formatCurrency(ch.cpl) : "-",
+              free ? "NVT" : ch.cost > 0 ? formatCurrency(ch.kpa) : "-",
+              free ? "NVT" : ch.cost > 0 ? `${ch.roi}x` : "-",
+            ];
+          })} />
 
           <div className="text-[8px] text-gray-400 mt-2 space-y-1">
             <p>* Alle bedragen zijn exclusief BTW</p>

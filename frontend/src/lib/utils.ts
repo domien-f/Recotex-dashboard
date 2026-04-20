@@ -16,3 +16,10 @@ export function formatPercent(value: number | string): string {
 export function formatNumber(value: number | string): string {
   return new Intl.NumberFormat("nl-BE").format(Number(value));
 }
+
+// Channels that inherently have no marketing cost — ROI, K/O, CPL, KPA, COA are N/A
+export const FREE_CHANNELS = ["Website", "Referentie (van de klant)", "Referentie", "Eigen lead medewerker", "Eigen lead", "Reactivatie"];
+
+export function isFreeChannel(channel: string): boolean {
+  return FREE_CHANNELS.includes(channel);
+}

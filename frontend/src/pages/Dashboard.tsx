@@ -4,7 +4,7 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useMetricsOverview, useChannelMetrics } from "@/hooks/useMetrics";
 import { useFilterStore } from "@/store/filterStore";
-import { formatCurrency, formatPercent, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatPercent, formatNumber, isFreeChannel } from "@/lib/utils";
 import { Users, UserCheck, Trophy, TrendingUp, Wallet, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { exportCSV } from "@/lib/export";
@@ -221,7 +221,9 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {channels.map((ch) => (
+                  {channels.map((ch) => {
+                  const free = isFreeChannel(ch.channel);
+                  return (
                     <tr key={ch.channel} className="border-b border-border/30 transition-colors hover:bg-muted/50">
                       <td className="py-3.5">
                         <div className="flex items-center gap-2.5">
@@ -234,15 +236,16 @@ export function DashboardPage() {
                       <td className="py-3.5 text-right">
                         <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">{formatPercent(ch.winRate)}</span>
                       </td>
-                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(ch.cost)}</td>
+                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{free ? "-" : formatCurrency(ch.cost)}</td>
                       <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
-                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(ch.cpl)}</td>
-                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(ch.kpa)}</td>
+                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{free ? <span className="text-xs text-muted-foreground/60">NVT</span> : formatCurrency(ch.cpl)}</td>
+                      <td className="py-3.5 text-right tabular-nums text-muted-foreground">{free ? <span className="text-xs text-muted-foreground/60">NVT</span> : formatCurrency(ch.kpa)}</td>
                       <td className="py-3.5 text-right">
-                        <span className="font-semibold tabular-nums text-primary">{ch.roi}x</span>
+                        {free ? <span className="text-xs text-muted-foreground/60">NVT</span> : <span className="font-semibold tabular-nums text-primary">{ch.roi}x</span>}
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
                 </tbody>
               </table>
             </div>
