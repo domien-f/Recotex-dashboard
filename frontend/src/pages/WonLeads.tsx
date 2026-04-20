@@ -85,8 +85,8 @@ export function WonLeadsPage() {
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         <KpiCard title="Won Deals" value={formatNumber(overview?.wonDeals || 0)} icon={<Trophy className="h-4 w-4" />} />
         <KpiCard title="Totale Omzet" value={formatCurrency(overview?.totalRevenue || 0)} icon={<Wallet className="h-4 w-4" />} />
-        <KpiCard title="Gem. Omzet per Deal" value={formatCurrency(overview?.avgRevenuePerDeal || 0)} icon={<TrendingUp className="h-4 w-4" />} />
-        <KpiCard title="Gem. Doorlooptijd" value={`${avgDoorlooptijd} dagen`} icon={<Clock className="h-4 w-4" />} />
+        <KpiCard title="Gem. Omzet per Deal" value={formatCurrency(overview?.avgRevenuePerDeal || 0)} icon={<TrendingUp className="h-4 w-4" />} formula={{ label: "Gemiddelde Omzet per Deal", description: "Gem. opbrengst per gewonnen deal", formula: "Totale omzet ÷ Aantal gewonnen deals" }} />
+        <KpiCard title="Gem. Doorlooptijd" value={`${avgDoorlooptijd} dagen`} icon={<Clock className="h-4 w-4" />} formula={{ label: "Gemiddelde Doorlooptijd", description: "Gem. dagen van lead tot won", formula: "Σ(Won datum − Aanmaakdatum) ÷ Aantal won deals" }} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

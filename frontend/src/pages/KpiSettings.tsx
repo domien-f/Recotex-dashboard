@@ -48,20 +48,42 @@ const KPI_DEFS: Record<string, {
   own_leads_percentage: { label: "Eigen Leads %", description: "% leads uit eigen kanalen (Website, Referentie, Eigen lead)", format: (v) => `${v.toFixed(1)}%`, direction: "higher" },
 };
 
-function getStatus(current: number, target: number, dir: "lower" | "higher"): "success" | "warning" | "danger" {
-  if (dir === "lower") return current <= target ? "success" : current <= target * 1.2 ? "warning" : "danger";
-  return current >= target ? "success" : current >= target * 0.8 ? "warning" : "danger";
+function getStatus(current: number, target: number, dir: "lower" | "higher"): "success" | "good" | "warning" | "danger" {
+  if (dir === "lower") {
+    if (current <= target) return "success";
+    if (current <= target * 1.15) return "good";
+    if (current <= target * 1.4) return "warning";
+    return "danger";
+  }
+  if (current >= target) return "success";
+  if (current >= target * 0.85) return "good";
+  if (current >= target * 0.6) return "warning";
+  return "danger";
 }
 
 function getProgress(current: number, target: number, dir: "lower" | "higher"): number {
-  if (dir === "lower") return target > 0 ? Math.max(0, Math.min(100, ((2 * target - current) / (2 * target)) * 100)) : 0;
+  if (dir === "lower") {
+    if (current <= 0) return 100;
+    return target > 0 ? Math.max(0, Math.min(100, (target / current) * 100)) : 0;
+  }
   return target > 0 ? Math.max(0, Math.min(100, (current / target) * 100)) : 0;
 }
 
-const SC = {
-  success: { bg: "bg-success", text: "text-success" },
-  warning: { bg: "bg-warning", text: "text-warning" },
-  danger: { bg: "bg-destructive", text: "text-destructive" },
+function getDeviation(current: number, target: number, dir: "lower" | "higher"): string {
+  if (target === 0) return "";
+  if (dir === "lower") {
+    if (current <= target) return `${((1 - current / target) * 100).toFixed(0)}% onder target`;
+    return `${((current / target - 1) * 100).toFixed(0)}% boven target`;
+  }
+  if (current >= target) return `${((current / target - 1) * 100).toFixed(0)}% boven target`;
+  return `${((1 - current / target) * 100).toFixed(0)}% onder target`;
+}
+
+const SC: Record<string, { bg: string; text: string; label: string }> = {
+  success: { bg: "bg-emerald-500", text: "text-emerald-600", label: "Op target" },
+  good: { bg: "bg-emerald-400/70", text: "text-emerald-500", label: "Bijna op target" },
+  warning: { bg: "bg-amber-400", text: "text-amber-600", label: "Aandacht nodig" },
+  danger: { bg: "bg-red-500", text: "text-red-600", label: "Onder target" },
 };
 
 export function KpiSettingsPage() {
@@ -111,7 +133,7 @@ export function KpiSettingsPage() {
     { metric: "own_leads_percentage", current: ownPct },
   ];
 
-  const coaStatus = coa <= coaOver ? "success" : coa <= coaTarget ? "success" : coa <= coaAcceptable ? "warning" : "danger";
+  const coaStatus: "success" | "good" | "warning" | "danger" = coa <= coaOver ? "success" : coa <= coaTarget ? "good" : coa <= coaAcceptable ? "warning" : "danger";
 
   return (
     <div className="space-y-8">
@@ -130,6 +152,9 @@ export function KpiSettingsPage() {
           const progress = getProgress(current, target, def.direction);
           const c = SC[status];
 
+          const deviation = getDeviation(current, target, def.direction);
+          const StatusIcon = status === "success" || status === "good" ? CheckCircle : status === "warning" ? AlertTriangle : XCircle;
+
           return (
             <Card key={metric} className="overflow-hidden">
               <div className={`h-1 ${c.bg}`} />
@@ -139,7 +164,7 @@ export function KpiSettingsPage() {
                     <p className="text-sm font-semibold text-foreground">{def.label}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{def.description}</p>
                   </div>
-                  {status === "success" ? <CheckCircle className={`h-5 w-5 ${c.text}`} /> : status === "warning" ? <AlertTriangle className={`h-5 w-5 ${c.text}`} /> : <XCircle className={`h-5 w-5 ${c.text}`} />}
+                  <StatusIcon className={`h-5 w-5 ${c.text}`} />
                 </div>
                 <div className="flex items-baseline gap-2 mb-3">
                   <span className="text-2xl font-bold text-foreground">{def.format(current)}</span>
@@ -148,9 +173,10 @@ export function KpiSettingsPage() {
                 <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                   <div className={`h-full rounded-full transition-all ${c.bg}`} style={{ width: `${Math.min(progress, 100)}%` }} />
                 </div>
-                <p className={`mt-1.5 text-xs font-medium ${c.text}`}>
-                  {status === "success" ? "Op schema" : status === "warning" ? "Bijna op target" : "Onder target"}
-                </p>
+                <div className="mt-1.5 flex items-center justify-between">
+                  <p className={`text-xs font-medium ${c.text}`}>{c.label}</p>
+                  {deviation && <p className="text-[10px] text-muted-foreground">{deviation}</p>}
+                </div>
               </CardContent>
             </Card>
           );
@@ -165,18 +191,18 @@ export function KpiSettingsPage() {
                 <p className="text-sm font-semibold text-foreground"><MetricLabel code="COA" /> Tiers</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Cost Of Acquisition met 3 niveaus</p>
               </div>
-              {coaStatus === "success" ? <CheckCircle className="h-5 w-5 text-success" /> : coaStatus === "warning" ? <AlertTriangle className="h-5 w-5 text-warning" /> : <XCircle className="h-5 w-5 text-destructive" />}
+              {coaStatus === "success" || coaStatus === "good" ? <CheckCircle className={`h-5 w-5 ${SC[coaStatus].text}`} /> : coaStatus === "warning" ? <AlertTriangle className={`h-5 w-5 ${SC[coaStatus].text}`} /> : <XCircle className={`h-5 w-5 ${SC[coaStatus].text}`} />}
             </div>
             <div className="text-2xl font-bold text-foreground mb-4">{formatCurrency(coa)}</div>
             <div className="space-y-2.5">
               {[
-                { label: "Overachieved", value: coaOver, ok: coa <= coaOver },
-                { label: "Target", value: coaTarget, ok: coa <= coaTarget, bold: true },
-                { label: "Acceptable", value: coaAcceptable, ok: coa <= coaAcceptable },
+                { label: "Overachieved", value: coaOver, ok: coa <= coaOver, color: "bg-emerald-500" },
+                { label: "Target", value: coaTarget, ok: coa <= coaTarget, bold: true, color: "bg-emerald-400/70" },
+                { label: "Acceptable", value: coaAcceptable, ok: coa <= coaAcceptable, color: "bg-amber-400" },
               ].map((tier) => (
                 <div key={tier.label} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={`h-2.5 w-2.5 rounded-full ${tier.ok ? "bg-success" : "bg-muted"}`} />
+                    <div className={`h-2.5 w-2.5 rounded-full ${tier.ok ? tier.color : "bg-muted"}`} />
                     <span className={`text-xs ${tier.bold ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{tier.label}</span>
                   </div>
                   <span className="text-xs font-semibold text-foreground">&lt; {formatCurrency(tier.value)}</span>
@@ -287,17 +313,21 @@ export function KpiSettingsPage() {
                   {channels.filter((ch) => ch.cost > 0).sort((a, b) => b.cost - a.cost).map((ch) => {
                     const chKpa = parseFloat(ch.kpa);
                     const chCoa = parseFloat(ch.coa);
-                    const kpaOk = chKpa <= (t("kpa") || 120);
+                    const kpaTarget = t("kpa") || 120;
+                    const kpaStatus = chKpa <= kpaTarget ? "text-emerald-600" : chKpa <= kpaTarget * 1.15 ? "text-emerald-500" : chKpa <= kpaTarget * 1.4 ? "text-amber-600" : "text-red-600";
+                    const coaColor = chCoa <= coaOver ? "text-emerald-600" : chCoa <= coaTarget ? "text-emerald-500" : chCoa <= coaAcceptable ? "text-amber-600" : "text-red-600";
+                    const kpaOk = chKpa <= kpaTarget * 1.15;
                     const coaOk = chCoa <= coaAcceptable;
+                    const rowOk = kpaOk && coaOk;
                     return (
                       <tr key={ch.channel} className="border-b border-border/30 hover:bg-muted/50">
                         <td className="py-3.5 font-medium text-foreground">{ch.channel}</td>
                         <td className="py-3.5 text-right tabular-nums">{ch.deals}</td>
                         <td className="py-3.5 text-right tabular-nums">{formatCurrency(ch.cpl)}</td>
-                        <td className="py-3.5 text-right"><span className={`font-medium tabular-nums ${kpaOk ? "text-success" : "text-destructive"}`}>{formatCurrency(ch.kpa)}</span></td>
-                        <td className="py-3.5 text-right"><span className={`font-medium tabular-nums ${coaOk ? chCoa <= coaTarget ? "text-success" : "text-warning" : "text-destructive"}`}>{formatCurrency(ch.coa)}</span></td>
+                        <td className="py-3.5 text-right"><span className={`font-medium tabular-nums ${kpaStatus}`}>{formatCurrency(ch.kpa)}</span></td>
+                        <td className="py-3.5 text-right"><span className={`font-medium tabular-nums ${coaColor}`}>{formatCurrency(ch.coa)}</span></td>
                         <td className="py-3.5 text-right font-semibold tabular-nums text-primary">{ch.roi}x</td>
-                        <td className="py-3.5 text-right">{kpaOk && coaOk ? <CheckCircle className="ml-auto h-4 w-4 text-success" /> : <AlertTriangle className="ml-auto h-4 w-4 text-warning" />}</td>
+                        <td className="py-3.5 text-right">{rowOk ? <CheckCircle className="ml-auto h-4 w-4 text-emerald-500" /> : chCoa <= coaAcceptable || chKpa <= kpaTarget * 1.4 ? <AlertTriangle className="ml-auto h-4 w-4 text-amber-500" /> : <XCircle className="ml-auto h-4 w-4 text-red-500" />}</td>
                       </tr>
                     );
                   })}

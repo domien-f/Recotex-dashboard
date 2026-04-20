@@ -125,7 +125,7 @@ export function LeadSourcesPage() {
         <KpiCard title="Totaal Leads" value={formatNumber(totalDeals)} icon={<Users className="h-4 w-4" />} />
         <KpiCard title="Won Deals" value={formatNumber(totalWon)} icon={<TrendingUp className="h-4 w-4" />} />
         <KpiCard title="Totale Omzet" value={formatCurrency(totalRevenue)} icon={<BarChart3 className="h-4 w-4" />} />
-        <KpiCard title="Eigen Leads" value={`${ownPct.toFixed(1)}%`} icon={<MapPin className="h-4 w-4" />} />
+        <KpiCard title="Eigen Leads" value={`${ownPct.toFixed(1)}%`} icon={<MapPin className="h-4 w-4" />} formula={{ label: "Eigen Leads Percentage", description: "Aandeel leads uit eigen kanalen", formula: "(Eigen leads ÷ Totaal leads) × 100%" }} />
       </div>
 
       {/* Treemap + Volume Bar */}
@@ -213,8 +213,8 @@ export function LeadSourcesPage() {
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Deals</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Won</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Win%" /></th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recl. %</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kwaliteit</th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Recl.%" /></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Kwaliteit" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Omzet</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="CPL" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="ROI" /></th>

@@ -140,17 +140,17 @@ export function DashboardPage() {
         <KpiCard title="Totaal Deals" value={formatNumber(overview.totalDeals)} icon={<Users className="h-4 w-4" />} onClick={() => setDrill({ title: "Alle Deals" })} />
         <KpiCard title="Unieke Contacten" value={formatNumber(overview.uniqueContacts)} icon={<UserCheck className="h-4 w-4" />} />
         <KpiCard title="Won Deals" value={formatNumber(overview.wonDeals)} icon={<Trophy className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Won Deals" })} />
-        <KpiCard title="Win Rate" value={formatPercent(overview.winRateGlobal)} icon={<TrendingUp className="h-4 w-4" />} />
+        <KpiCard title="Win Rate" value={formatPercent(overview.winRateGlobal)} icon={<TrendingUp className="h-4 w-4" />} formula={{ label: "Win Percentage", description: "Percentage deals gewonnen", formula: "(Gewonnen deals ÷ Totaal deals) × 100%" }} />
         <KpiCard title="Totale Omzet" value={formatCurrency(overview.totalRevenue)} icon={<Wallet className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Omzet — Won Deals" })} />
       </div>
 
       {/* KPI Cards Row 2 */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-5">
         <KpiCard title="Totale Kost" value={formatCurrency(overview.totalCost)} isEstimated={overview.hasEstimatedCosts} />
-        <KpiCard title="CPL" value={formatCurrency(overview.cpl)} isEstimated={overview.hasEstimatedCosts} />
-        <KpiCard title="KPA" value={formatCurrency(overview.kpa)} isEstimated={overview.hasEstimatedCosts} />
-        <KpiCard title="ROI" value={`${overview.roi}x`} isEstimated={overview.hasEstimatedCosts} />
-        <KpiCard title="Netto Resultaat" value={formatCurrency(overview.netResult)} />
+        <KpiCard title="CPL" value={formatCurrency(overview.cpl)} isEstimated={overview.hasEstimatedCosts} formula={{ label: "Cost Per Lead", description: "Kost per binnengekregen lead", formula: "Totale kost ÷ Aantal leads" }} />
+        <KpiCard title="KPA" value={formatCurrency(overview.kpa)} isEstimated={overview.hasEstimatedCosts} formula={{ label: "Kost Per Afspraak", description: "Kost per gemaakte afspraak", formula: "Totale kost ÷ Aantal afspraken" }} />
+        <KpiCard title="ROI" value={`${overview.roi}x`} isEstimated={overview.hasEstimatedCosts} formula={{ label: "Return On Investment", description: "Hoeveel omzet per euro kost", formula: "Totale omzet ÷ Totale kost" }} />
+        <KpiCard title="Netto Resultaat" value={formatCurrency(overview.netResult)} formula={{ label: "Netto Resultaat", description: "Winst na aftrek van kosten", formula: "Totale omzet − Totale kost" }} />
       </div>
 
       {/* Charts */}
@@ -212,7 +212,7 @@ export function DashboardPage() {
                     <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Deals</th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Won</th>
-                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Win%</th>
+                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Win%" /></th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kost</th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Omzet</th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="CPL" /></th>

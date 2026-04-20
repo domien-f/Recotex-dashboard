@@ -1,3 +1,5 @@
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Badge } from "./badge";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown } from "lucide-react";
@@ -10,9 +12,21 @@ interface KpiCardProps {
   isEstimated?: boolean;
   className?: string;
   onClick?: () => void;
+  formula?: { label: string; description: string; formula: string };
 }
 
-export function KpiCard({ title, value, icon, trend, isEstimated, className, onClick }: KpiCardProps) {
+export function KpiCard({ title, value, icon, trend, isEstimated, className, onClick, formula }: KpiCardProps) {
+  const [showTip, setShowTip] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const titleRef = useRef<HTMLParagraphElement>(null);
+
+  const handleEnter = useCallback(() => {
+    if (!titleRef.current || !formula) return;
+    const rect = titleRef.current.getBoundingClientRect();
+    setPos({ x: rect.left + rect.width / 2, y: rect.top });
+    setShowTip(true);
+  }, [formula]);
+
   return (
     <div
       onClick={onClick}
@@ -26,7 +40,12 @@ export function KpiCard({ title, value, icon, trend, isEstimated, className, onC
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary to-gradient-end opacity-80" />
 
       <div className="flex items-start justify-between">
-        <p className="text-[13px] font-medium text-muted-foreground">{title}</p>
+        <p
+          ref={titleRef}
+          className={cn("text-[13px] font-medium text-muted-foreground", formula && "cursor-help border-b border-dashed border-muted-foreground/40")}
+          onMouseEnter={handleEnter}
+          onMouseLeave={() => setShowTip(false)}
+        >{title}</p>
         {icon && <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-light text-primary">{icon}</div>}
       </div>
 
@@ -48,6 +67,20 @@ export function KpiCard({ title, value, icon, trend, isEstimated, className, onC
           </div>
           <span className="text-[11px] text-muted-foreground">vs vorige periode</span>
         </div>
+      )}
+
+      {showTip && formula && createPortal(
+        <div
+          style={{ left: pos.x, top: pos.y }}
+          className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-full pb-2"
+        >
+          <div className="rounded-lg border border-border/60 bg-white px-3 py-2 shadow-xl">
+            <div className="text-xs font-semibold text-foreground whitespace-nowrap">{formula.label}</div>
+            <div className="text-[11px] text-muted-foreground whitespace-nowrap">{formula.description}</div>
+            <div className="mt-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono text-foreground/70 whitespace-nowrap">{formula.formula}</div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

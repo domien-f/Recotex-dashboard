@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useReclamationStats, useReclamationDeals } from "@/hooks/useDeals";
 import { formatNumber, formatPercent } from "@/lib/utils";
 import { AlertTriangle, Ban, Users, TrendingDown } from "lucide-react";
+import { MetricLabel } from "@/components/ui/metric-label";
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line,
@@ -76,7 +77,7 @@ export function ReclamatiesPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         <KpiCard title="Totaal Reclamaties" value={formatNumber(stats?.totalReclamations || 0)} icon={<AlertTriangle className="h-4 w-4" />} />
-        <KpiCard title="Reclamatie %" value={formatPercent(stats?.reclamationRate || 0)} icon={<Ban className="h-4 w-4" />} />
+        <KpiCard title="Reclamatie %" value={formatPercent(stats?.reclamationRate || 0)} icon={<Ban className="h-4 w-4" />} formula={{ label: "Reclamatie Percentage", description: "Contacten met reclamatie (zonder WON)", formula: "(Reclamatie contacten ÷ Totaal contacten) × 100%" }} />
         <KpiCard title="Totaal Deals" value={formatNumber(stats?.totalDeals || 0)} icon={<Users className="h-4 w-4" />} />
         <KpiCard title="Meest voorkomend" value={stats?.byCategory[0]?.reason || "-"} icon={<TrendingDown className="h-4 w-4" />} />
       </div>
@@ -131,7 +132,7 @@ export function ReclamatiesPage() {
                     <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Totaal Deals</th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reclamaties</th>
-                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reclamatie %</th>
+                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Recl.%" /></th>
                   </tr>
                 </thead>
                 <tbody>

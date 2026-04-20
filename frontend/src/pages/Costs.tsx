@@ -214,7 +214,9 @@ function AnalyticsTab() {
                 <thead>
                   <tr className="border-b border-border/60">
                     {["Maand"].map((h) => <th key={h} className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>)}
-                    {["Kosten", "Omzet", "Netto", "Kost/Omzet"].map((h) => <th key={h} className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>)}
+                    {["Kosten", "Omzet"].map((h) => <th key={h} className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>)}
+                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Netto" /></th>
+                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="K/O" /></th>
                     <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"></th>
                   </tr>
                 </thead>
