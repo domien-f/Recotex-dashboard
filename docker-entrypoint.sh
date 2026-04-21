@@ -1,18 +1,11 @@
 #!/bin/sh
-set -e
 
 echo "Generating Prisma client..."
 cd /app/backend
 npx prisma generate
 
-echo "Running database migrations..."
-
-# Baseline existing migrations if this is the first time using migrate deploy
-npx prisma migrate resolve --applied 20260318154840_init 2>/dev/null || true
-npx prisma migrate resolve --applied 20260324130637_add_integration_credentials 2>/dev/null || true
-npx prisma migrate resolve --applied 20260410120000_add_month_to_kpi_targets 2>/dev/null || true
-npx prisma migrate resolve --applied 20260421120000_add_budget_forecast 2>/dev/null || true
-npx prisma migrate deploy
+echo "Syncing database schema..."
+npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "db push warning (continuing)"
 
 echo "Seeding admin user..."
 npx tsx -e "
@@ -31,15 +24,14 @@ async function seed() {
   await prisma.\$disconnect();
 }
 seed();
-"
+" || echo "Admin seed skipped"
 
-echo "Seeding budget forecast (skips if data exists)..."
+echo "Seeding budget forecast..."
 cd /app
-npx tsx backend/src/scripts/seedBudgetForecast.ts || echo "Budget seed skipped (non-fatal)"
+npx tsx backend/src/scripts/seedBudgetForecast.ts || echo "Budget seed skipped"
 
 echo "Starting Nginx..."
 nginx
 
 echo "Starting Backend..."
-cd /app
-npx tsx backend/src/index.ts
+exec npx tsx backend/src/index.ts

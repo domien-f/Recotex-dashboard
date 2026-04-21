@@ -90,34 +90,25 @@ function AnalyticsView() {
   // Only count past months for "on track" calculation
   const now = new Date();
   const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const pastMonths = comparison.filter((c) => c.month < currentYM);
-
-  // Holt's double exponential smoothing for trend prediction
-  function holtForecast(actuals: number[], periods: number, alpha = 0.4, beta = 0.3): number[] {
-    if (actuals.length < 2) return Array(periods).fill(actuals[0] || 0);
-    let level = actuals[0];
-    let trend = actuals[1] - actuals[0];
-    for (let i = 1; i < actuals.length; i++) {
-      const prevLevel = level;
-      level = alpha * actuals[i] + (1 - alpha) * (level + trend);
-      trend = beta * (level - prevLevel) + (1 - beta) * trend;
-    }
-    const forecasted: number[] = [];
-    for (let i = 1; i <= periods; i++) {
-      forecasted.push(Math.max(0, Math.round(level + trend * i)));
-    }
-    return forecasted;
+  // Budget-adjusted forecast: uses actual/budget ratio to predict future months
+  // For each past month, calculate how much of the budget was actually spent (ratio).
+  // Then use a weighted average of those ratios to scale future budget months.
+  const currentMonth = comparison.find((c) => c.month === currentYM);
+  const completedMonths = comparison.filter((c) => c.month < currentYM && c.forecast > 0);
+  if (currentMonth && currentMonth.actual > 0 && currentMonth.forecast > 0) {
+    completedMonths.push(currentMonth);
   }
 
-  // Build the combined timeline chart data
-  const actualValues = pastMonths.map((c) => c.actual);
-  const currentMonth = comparison.find((c) => c.month === currentYM);
-  if (currentMonth && currentMonth.actual > 0) actualValues.push(currentMonth.actual);
+  // Calculate spend ratios (actual / budget) with recency weighting
+  const ratios = completedMonths.map((c, i) => ({
+    ratio: c.actual / c.forecast,
+    weight: i + 1, // more recent months weigh more
+  }));
 
-  const futureMonths = comparison.filter((c) => c.month > currentYM || (c.month === currentYM && (!currentMonth || currentMonth.actual === 0)));
-  const predicted = holtForecast(actualValues, futureMonths.length + (currentMonth && currentMonth.actual === 0 ? 1 : 0));
+  const weightedRatio = ratios.length > 0
+    ? ratios.reduce((s, r) => s + r.ratio * r.weight, 0) / ratios.reduce((s, r) => s + r.weight, 0)
+    : 1;
 
-  let predIdx = 0;
   const timelineData = comparison.map((c) => {
     const isPast = c.month < currentYM;
     const isCurrent = c.month === currentYM;
@@ -130,10 +121,11 @@ function AnalyticsView() {
 
     if (hasActual) {
       row.actual = Math.round(c.actual);
-      row.predicted = Math.round(c.actual); // trend line passes through actuals
+      row.predicted = Math.round(c.actual);
     } else {
       row.budgetFuture = Math.round(c.forecast);
-      row.predicted = predicted[predIdx++] ?? null;
+      // Predict future = budget × weighted spend ratio
+      row.predicted = Math.round(c.forecast * weightedRatio);
     }
 
     return row;
@@ -151,7 +143,7 @@ function AnalyticsView() {
             <div>
               <CardTitle>Budget vs Werkelijk vs Voorspelling</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Trend gebaseerd op Holt's exponential smoothing — voorspeld jaartotaal: <span className="font-semibold text-foreground">{formatCurrency(totalPredicted)}</span>
+                Voorspelling op basis van gewogen spend ratio ({(weightedRatio * 100).toFixed(0)}% van budget) — voorspeld jaartotaal: <span className="font-semibold text-foreground">{formatCurrency(totalPredicted)}</span>
                 {totalForecast > 0 && <span> ({totalPredicted <= totalForecast ? "" : "+"}{((totalPredicted - totalForecast) / totalForecast * 100).toFixed(1)}% t.o.v. budget)</span>}
               </p>
             </div>
@@ -192,7 +184,7 @@ function AnalyticsView() {
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         <KpiCard title="Gebudgetteerd" value={formatCurrency(totalForecast)} icon={<Target className="h-4 w-4" />} formula={{ label: "Budget Forecast", description: "Som van alle gebudgetteerde bedragen", formula: "Σ maandelijks budget per categorie" }} />
         <KpiCard title="Werkelijke Kost" value={formatCurrency(totalActual)} icon={<Wallet className="h-4 w-4" />} />
-        <KpiCard title="Voorspeld Jaartotaal" value={formatCurrency(totalPredicted)} icon={<TrendingUp className="h-4 w-4" />} formula={{ label: "Holt's Forecast", description: "Voorspelling o.b.v. trend in werkelijke kosten", formula: "Exponential smoothing (α=0.4, β=0.3)" }} />
+        <KpiCard title="Voorspeld Jaartotaal" value={formatCurrency(totalPredicted)} icon={<TrendingUp className="h-4 w-4" />} formula={{ label: "Budget-Adjusted Forecast", description: "Toekomstige maanden × gewogen spend ratio", formula: `Budget × ${(weightedRatio * 100).toFixed(0)}% (gewogen gem. werkelijk/budget)` }} />
         <KpiCard title="Budget Verbruik" value={`${totalForecast > 0 ? ((totalActual / totalForecast) * 100).toFixed(1) : "0"}%`} icon={<BarChart3 className="h-4 w-4" />} formula={{ label: "Budget Verbruik", description: "Hoeveel % van het budget al besteed", formula: "Werkelijke kost ÷ Budget × 100%" }} />
       </div>
 
