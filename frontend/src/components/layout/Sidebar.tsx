@@ -11,7 +11,7 @@ import {
   MapPin,
   FileText,
   Settings,
-
+  TrendingUp,
   Sparkles,
   FileDown,
   Upload,
@@ -28,6 +28,7 @@ const mainNav = [
 const analyticsNav = [
   { to: "/kosten", icon: Euro, label: "Kosten & ROI" },
   { to: "/kpi", icon: Target, label: "KPI Targets" },
+  { to: "/budget", icon: TrendingUp, label: "Budget Forecast" },
   { to: "/herkomst", icon: MapPin, label: "Lead Herkomst" },
 ];
 

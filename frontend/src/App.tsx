@@ -15,6 +15,7 @@ import { SettingsPage } from "./pages/Settings";
 import { TeamleaderImportPage } from "./pages/TeamleaderImport";
 import { AiAssistantPage } from "./pages/AiAssistant";
 import { ReportPage } from "./pages/Report";
+import { BudgetForecastPage } from "./pages/BudgetForecast";
 import { useAuth } from "./hooks/useAuth";
 
 const queryClient = new QueryClient({
@@ -58,6 +59,7 @@ function App() {
             <Route path="/kosten" element={<CostsPage />} />
             <Route path="/kpi" element={<KpiSettingsPage />} />
             <Route path="/herkomst" element={<LeadSourcesPage />} />
+            <Route path="/budget" element={<BudgetForecastPage />} />
             <Route path="/ai" element={<AiAssistantPage />} />
             <Route path="/rapport" element={<ReportPage />} />
             <Route path="/facturen" element={<InvoicesPage />} />

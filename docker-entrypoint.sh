@@ -31,6 +31,9 @@ async function seed() {
 seed();
 "
 
+echo "Seeding budget forecast (skips if data exists)..."
+npx tsx backend/src/scripts/seedBudgetForecast.ts
+
 echo "Starting Nginx..."
 nginx
 

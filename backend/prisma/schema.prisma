@@ -269,6 +269,21 @@ model AiConversation {
   @@map("ai_conversations")
 }
 
+model BudgetForecast {
+  id          String   @id @default(cuid())
+  category    String
+  subcategory String   @default("")
+  month       DateTime @db.Date
+  amount      Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([category, subcategory, month], name: "category_sub_month")
+  @@index([month])
+  @@index([category])
+  @@map("budget_forecasts")
+}
+
 model SyncLog {
   id            String     @id @default(cuid())
   source        String

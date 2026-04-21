@@ -13,6 +13,7 @@ import integrationRoutes from "./routes/integrations.js";
 import solvariRoutes from "./routes/solvari.js";
 import aiRoutes from "./routes/ai.js";
 import reportRoutes from "./routes/report.js";
+import budgetForecastRoutes from "./routes/budget-forecast.js";
 import { startScheduler } from "./jobs/scheduler.js";
 
 export const prisma = new PrismaClient();
@@ -36,6 +37,7 @@ app.use("/api/integrations", integrationRoutes);
 app.use("/api/solvari", solvariRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/report", reportRoutes);
+app.use("/api/budget-forecast", budgetForecastRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
