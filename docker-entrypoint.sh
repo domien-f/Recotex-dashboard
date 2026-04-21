@@ -35,7 +35,7 @@ seed();
 
 echo "Seeding budget forecast (skips if data exists)..."
 cd /app
-npx tsx backend/src/scripts/seedBudgetForecast.ts
+npx tsx backend/src/scripts/seedBudgetForecast.ts || echo "Budget seed skipped (non-fatal)"
 
 echo "Starting Nginx..."
 nginx
