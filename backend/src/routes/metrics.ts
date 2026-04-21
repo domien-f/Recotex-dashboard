@@ -68,13 +68,16 @@ router.get("/overview", async (req: AuthRequest, res: Response) => {
     prisma.deal.aggregate({ where: { ...dealWhere, status: "WON" }, _sum: { revenue: true } }),
     prisma.cost.aggregate({ where: costWhere, _sum: { amount: true } }),
     prisma.appointment.count({
-      where: dateFrom || dateTo ? {
-        OR: [
-          { scheduledAt: dealWhere.dealCreatedAt },
-          { scheduledAt: null, date: dealWhere.dealCreatedAt },
-        ],
+      where: {
+        ...(dateFrom || dateTo ? {
+          OR: [
+            { scheduledAt: dealWhere.dealCreatedAt },
+            { scheduledAt: null, date: dealWhere.dealCreatedAt },
+          ],
+        } : {}),
+        ...(herkomst ? { channel: multiFilter(herkomst) } : {}),
         outcome: { not: "CANCELLED" },
-      } : { outcome: { not: "CANCELLED" } },
+      },
     }),
     prisma.appointment.count({
       where: {
@@ -84,6 +87,7 @@ router.get("/overview", async (req: AuthRequest, res: Response) => {
             { scheduledAt: null, date: dealWhere.dealCreatedAt },
           ],
         } : {}),
+        ...(herkomst ? { channel: multiFilter(herkomst) } : {}),
         outcome: "WON",
       },
     }),
@@ -136,6 +140,7 @@ router.get("/channels", async (req: AuthRequest, res: Response) => {
   if (dateFrom) { const d = new Date(dateFrom as string); costDateFilter.gte = new Date(d.getFullYear(), d.getMonth(), 1); }
   if (dateTo) { const d = new Date(dateTo as string); costDateFilter.lte = new Date(d.getFullYear(), d.getMonth() + 1, 0); }
   const costWhere: any = dateFrom || dateTo ? { date: costDateFilter } : {};
+  if (herkomst) costWhere.channel = multiFilter(herkomst);
 
   const [dealsByChannel, costsByChannel, wonByChannel, revenueByChannel, appointmentsByChannel] = await Promise.all([
     prisma.deal.groupBy({ by: ["herkomst"], where: dealWhere, _count: true }),
@@ -151,6 +156,7 @@ router.get("/channels", async (req: AuthRequest, res: Response) => {
             { scheduledAt: null, date: dateFilter },
           ],
         } : {}),
+        ...(herkomst ? { channel: multiFilter(herkomst) } : {}),
         outcome: { not: "CANCELLED" },
       },
       _count: true,
