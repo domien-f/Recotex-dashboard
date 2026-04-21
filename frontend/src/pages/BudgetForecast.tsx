@@ -93,11 +93,8 @@ function AnalyticsView() {
   // Budget-adjusted forecast: uses actual/budget ratio to predict future months
   // For each past month, calculate how much of the budget was actually spent (ratio).
   // Then use a weighted average of those ratios to scale future budget months.
-  const currentMonth = comparison.find((c) => c.month === currentYM);
+  // Only use fully completed months for the ratio — current month is partial
   const completedMonths = comparison.filter((c) => c.month < currentYM && c.forecast > 0);
-  if (currentMonth && currentMonth.actual > 0 && currentMonth.forecast > 0) {
-    completedMonths.push(currentMonth);
-  }
 
   // Calculate spend ratios (actual / budget) with recency weighting
   const ratios = completedMonths.map((c, i) => ({
@@ -112,27 +109,31 @@ function AnalyticsView() {
   const timelineData = comparison.map((c) => {
     const isPast = c.month < currentYM;
     const isCurrent = c.month === currentYM;
-    const hasActual = (isPast || isCurrent) && c.actual > 0;
-
     const row: any = {
       month: c.month,
       budget: Math.round(c.forecast),
     };
 
-    if (hasActual) {
+    if (isPast) {
       row.actual = Math.round(c.actual);
       row.predicted = Math.round(c.actual);
+    } else if (isCurrent && c.actual > 0) {
+      // Current month: show actual bar but predict based on ratio
+      row.actual = Math.round(c.actual);
+      row.predicted = Math.round(c.forecast * weightedRatio);
     } else {
       row.budgetFuture = Math.round(c.forecast);
-      // Predict future = budget × weighted spend ratio
       row.predicted = Math.round(c.forecast * weightedRatio);
     }
 
     return row;
   });
 
-  // Year-end prediction
-  const totalPredicted = timelineData.reduce((s, d) => s + (d.actual || d.predicted || 0), 0);
+  // Year-end prediction: past months use actual, current + future use predicted
+  const totalPredicted = timelineData.reduce((s, d) => {
+    const isPast = d.month < currentYM;
+    return s + (isPast ? (d.actual || 0) : (d.predicted || 0));
+  }, 0);
 
   return (
     <div className="space-y-8">
