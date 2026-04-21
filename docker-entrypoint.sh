@@ -10,6 +10,8 @@ echo "Running database migrations..."
 # Baseline existing migrations if this is the first time using migrate deploy
 npx prisma migrate resolve --applied 20260318154840_init 2>/dev/null || true
 npx prisma migrate resolve --applied 20260324130637_add_integration_credentials 2>/dev/null || true
+npx prisma migrate resolve --applied 20260410120000_add_month_to_kpi_targets 2>/dev/null || true
+npx prisma migrate resolve --applied 20260421120000_add_budget_forecast 2>/dev/null || true
 npx prisma migrate deploy
 
 echo "Seeding admin user..."
@@ -32,6 +34,7 @@ seed();
 "
 
 echo "Seeding budget forecast (skips if data exists)..."
+cd /app
 npx tsx backend/src/scripts/seedBudgetForecast.ts
 
 echo "Starting Nginx..."
