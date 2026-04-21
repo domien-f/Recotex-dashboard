@@ -170,30 +170,33 @@ router.delete("/:id", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, 
 // Map actual cost channel names → budget subcategory names
 const CHANNEL_TO_SUBCATEGORY: Record<string, string> = {
   "Solvari": "Solvari",
-  "Red Pepper": "Social Ads (Meta, Tiktok, Youtube)",
+  "Red Pepper": "RedPepper PPA",
+  "PPA": "RedPepper PPA",
   "META Leads": "Social Ads (Meta, Tiktok, Youtube)",
   "GOOGLE": "SEA (Google/Bing zoekcampagnes)",
-  "PPA": "RedPepper PPA",
+  "Google Leads": "SEA (Google/Bing zoekcampagnes)",
   "Renocheck": "Renocheck",
   "Serieus Verbouwen": "Serieus Verbouwen",
   "Bouw En Reno": "Bouw en Reno",
   "Bis Beurs": "BIS BEURS 2026",
+  "Scopr": "Scopr",
+  "TestAannemer": "TestAannemer",
 };
 
 // Map cost channel → budget category
 const CHANNEL_TO_CATEGORY: Record<string, string> = {
   "Solvari": "Lead Kanalen",
   "Red Pepper": "Lead Kanalen",
+  "PPA": "Lead Kanalen",
   "META Leads": "Lead Kanalen",
   "GOOGLE": "Lead Kanalen",
-  "PPA": "Lead Kanalen",
+  "Google Leads": "Lead Kanalen",
   "Renocheck": "Lead Kanalen",
   "Serieus Verbouwen": "Lead Kanalen",
+  "Scopr": "Lead Kanalen",
+  "TestAannemer": "Lead Kanalen",
   "Bouw En Reno": "Beurzen",
   "Bis Beurs": "Beurzen",
-  "Website": "Lead Kanalen",
-  "Eigen lead medewerker": "Lead Kanalen",
-  "Referentie (van de klant)": "Lead Kanalen",
 };
 
 export default router;

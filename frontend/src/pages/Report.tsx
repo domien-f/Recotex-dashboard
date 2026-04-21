@@ -433,7 +433,7 @@ Gebruik concrete cijfers uit de data. Nederlands. ${tone}. GEEN emojis gebruiken
           <div className="bg-gray-50 px-5 py-4">
             <p className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-2">Waarom varieert de reclamatie ratio?</p>
             <BodyText>
-              Third-party lead providers (zoals Solvari, Red Pepper) leveren leads op basis van zoekgedrag van consumenten.
+              Third-party lead providers (zoals Solvari, Renocheck) leveren leads op basis van zoekgedrag van consumenten.
               Niet elke consument die informatie aanvraagt is daadwerkelijk geïnteresseerd — vandaar een hogere reclamatie ratio.
               <B> Eigen kanalen</B> (Website, Referentie) hebben doorgaans een lagere ratio omdat de intentie hoger is.
               De overall reclamatie ratio van <B>{formatPercent(recl?.reclamationRate || 0)}</B> is
@@ -559,7 +559,7 @@ Gebruik concrete cijfers uit de data. Nederlands. ${tone}. GEEN emojis gebruiken
               { term: "Win Rate", def: "Het percentage leads dat uiteindelijk resulteert in een gewonnen deal. Berekening: gewonnen deals ÷ totaal afgeronde deals × 100%." },
               { term: "Reclamatie", def: "Een lead die niet bruikbaar blijkt — door foute contactgegevens, geen interesse, niet bereikbaar, of buiten het werkgebied. Reclamaties worden gecategoriseerd en geanalyseerd per kanaal." },
               { term: "Pipeline", def: "Het verkoopproces dat een lead doorloopt: Lead binnenkomst → Eerste contact → Afspraak → Offerte → Gewonnen/Verloren." },
-              { term: "Third-party Lead Provider", def: "Een extern bedrijf dat leads levert aan Recotex, zoals Solvari of Red Pepper. De kwaliteit en kosten variëren per provider." },
+              { term: "Third-party Lead Provider", def: "Een extern bedrijf dat leads levert aan Recotex, zoals Solvari of Renocheck. De kwaliteit en kosten variëren per provider." },
             ].map((item) => (
               <div key={item.term} className="flex gap-3 section">
                 <div className="w-36 flex-shrink-0">

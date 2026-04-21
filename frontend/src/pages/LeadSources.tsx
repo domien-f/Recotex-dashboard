@@ -71,7 +71,7 @@ export function LeadSourcesPage() {
   const totalDeals = sorted.reduce((s, c) => s + c.deals, 0);
   const totalRevenue = sorted.reduce((s, c) => s + c.revenue, 0);
   const totalWon = sorted.reduce((s, c) => s + c.won, 0);
-  const ownChannels = ["Website", "Referentie (van de klant)", "Eigen lead medewerker", "Eigen lead", "Reactivatie", "META Leads", "GOOGLE"];
+  const ownChannels = ["Website", "Referentie (van de klant)", "Eigen lead medewerker", "Eigen lead", "Reactivatie", "META Leads", "GOOGLE", "Google Leads", "Red Pepper"];
   const ownDeals = sorted.filter((c) => ownChannels.includes(c.channel)).reduce((s, c) => s + c.deals, 0);
   const ownPct = totalDeals > 0 ? (ownDeals / totalDeals) * 100 : 0;
 

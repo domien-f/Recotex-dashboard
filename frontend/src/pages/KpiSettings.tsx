@@ -115,8 +115,9 @@ export function KpiSettingsPage() {
   const coa = won > 0 ? cost / won : 0;
 
   // Eigen leads = eigen marketing (Meta, Google, TikTok, Website, Referentie, Eigen lead)
-  // Third-party = Solvari, Red Pepper, Renocheck, PPA, Offertevergelijker, Bouw En Reno, etc.
-  const thirdPartyChannels = ["Solvari", "Red Pepper", "Renocheck", "PPA", "Offertevergelijker", "Bouw En Reno", "Bis Beurs", "Serieus Verbouwen", "Bobex", "Jaimy", "Fourvision", "Giga Leads"];
+  // Third-party = Solvari, Renocheck, PPA, Offertevergelijker, Bouw En Reno, etc.
+  // Red Pepper is eigen (agency running our own ads)
+  const thirdPartyChannels = ["Solvari", "Renocheck", "PPA", "Offertevergelijker", "Bouw En Reno", "Bis Beurs", "Serieus Verbouwen", "Bobex", "Jaimy", "Fourvision", "Giga Leads"];
   const ownLeads = channels?.filter((ch) => !thirdPartyChannels.includes(ch.channel)).reduce((s, ch) => s + ch.deals, 0) || 0;
   const ownPct = totalDeals > 0 ? (ownLeads / totalDeals) * 100 : 0;
 
