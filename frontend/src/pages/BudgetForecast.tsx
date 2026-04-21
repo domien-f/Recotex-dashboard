@@ -27,12 +27,11 @@ interface Comparison {
   actual: number;
   variance: number;
   variancePercent: number;
-  byCategory: Record<string, number>;
 }
 
 interface ComparisonData {
   comparison: Comparison[];
-  categoryTotals: Record<string, { forecast: number; actual: number }>;
+  channelTotals: Record<string, { forecast: number; actual: number; category: string }>;
 }
 
 const MONTH_LABELS: Record<string, string> = {
@@ -81,7 +80,7 @@ function AnalyticsView() {
     );
   }
 
-  const { comparison, categoryTotals } = data;
+  const { comparison, channelTotals } = data;
 
   const totalForecast = comparison.reduce((s, c) => s + c.forecast, 0);
   const totalActual = comparison.reduce((s, c) => s + c.actual, 0);
@@ -119,7 +118,6 @@ function AnalyticsView() {
     };
   });
 
-  const categories = Object.entries(categoryTotals).sort((a, b) => b[1].forecast - a[1].forecast);
 
   return (
     <div className="space-y-8">
@@ -188,32 +186,32 @@ function AnalyticsView() {
         </CardContent>
       </Card>
 
-      {/* Category breakdown table */}
+      {/* Per-channel breakdown table */}
       <Card>
-        <CardHeader><CardTitle>Budget per Categorie</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Budget per Kanaal</CardTitle></CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Categorie</th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Budget</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Werkelijk</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verschil</th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">%</th>
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verbruik</th>
                 </tr>
               </thead>
               <tbody>
-                {categories.map(([cat, { forecast, actual }]) => {
+                {Object.entries(channelTotals).sort((a, b) => b[1].forecast - a[1].forecast).map(([channel, { forecast, actual }]) => {
                   const diff = actual - forecast;
                   const pct = forecast > 0 ? (diff / forecast) * 100 : 0;
                   const rowStatus = forecast === 0 ? "neutral" : Math.abs(pct) <= 5 ? "success" : Math.abs(pct) <= 15 ? "warning" : "danger";
                   const progress = forecast > 0 ? Math.min(100, (actual / forecast) * 100) : 0;
 
                   return (
-                    <tr key={cat} className="border-b border-border/30 hover:bg-muted/50">
-                      <td className="py-3.5 font-medium text-foreground">{cat}</td>
+                    <tr key={channel} className="border-b border-border/30 hover:bg-muted/50">
+                      <td className="py-3.5 font-medium text-foreground">{channel}</td>
                       <td className="py-3.5 text-right tabular-nums text-muted-foreground">{formatCurrency(forecast)}</td>
                       <td className="py-3.5 text-right tabular-nums font-medium">{formatCurrency(actual)}</td>
                       <td className={`py-3.5 text-right tabular-nums font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-muted-foreground"}`}>

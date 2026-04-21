@@ -42,26 +42,26 @@ router.get("/comparison", async (req: AuthRequest, res: Response) => {
     prisma.cost.findMany({ where: costWhere, select: { channel: true, amount: true, date: true } }),
   ]);
 
-  // Group forecasts by month
-  const forecastByMonth: Record<string, { total: number; byCategory: Record<string, number> }> = {};
+  // Group forecasts by month (only category-level rows, subcategory="" for totals)
+  const forecastByMonth: Record<string, number> = {};
   for (const f of forecasts) {
+    if (f.subcategory && f.subcategory !== "") continue; // skip sub-items for monthly totals
     const ym = `${f.month.getFullYear()}-${String(f.month.getMonth() + 1).padStart(2, "0")}`;
-    if (!forecastByMonth[ym]) forecastByMonth[ym] = { total: 0, byCategory: {} };
-    forecastByMonth[ym].total += Number(f.amount);
-    forecastByMonth[ym].byCategory[f.category] = (forecastByMonth[ym].byCategory[f.category] || 0) + Number(f.amount);
+    forecastByMonth[ym] = (forecastByMonth[ym] || 0) + Number(f.amount);
   }
 
-  // Group actual costs by month
+  // Group actual costs by month (only mapped channels)
   const actualByMonth: Record<string, number> = {};
   for (const c of costs) {
+    if (!CHANNEL_TO_CATEGORY[c.channel]) continue;
     const ym = `${c.date.getFullYear()}-${String(c.date.getMonth() + 1).padStart(2, "0")}`;
     actualByMonth[ym] = (actualByMonth[ym] || 0) + Number(c.amount);
   }
 
-  // Build comparison
+  // Build monthly comparison
   const allMonths = new Set([...Object.keys(forecastByMonth), ...Object.keys(actualByMonth)]);
   const comparison = Array.from(allMonths).sort().map((month) => {
-    const forecast = forecastByMonth[month]?.total || 0;
+    const forecast = forecastByMonth[month] || 0;
     const actual = actualByMonth[month] || 0;
     return {
       month,
@@ -69,26 +69,31 @@ router.get("/comparison", async (req: AuthRequest, res: Response) => {
       actual,
       variance: actual - forecast,
       variancePercent: forecast > 0 ? ((actual - forecast) / forecast) * 100 : 0,
-      byCategory: forecastByMonth[month]?.byCategory || {},
     };
   });
 
-  // Category totals
-  const categoryTotals: Record<string, { forecast: number; actual: number }> = {};
+  // Subcategory (channel) totals — the actual per-channel breakdown
+  const channelTotals: Record<string, { forecast: number; actual: number; category: string }> = {};
+
+  // Forecasts per subcategory
   for (const f of forecasts) {
-    if (!categoryTotals[f.category]) categoryTotals[f.category] = { forecast: 0, actual: 0 };
-    categoryTotals[f.category].forecast += Number(f.amount);
+    if (!f.subcategory || f.subcategory === "") continue; // skip category totals
+    const key = f.subcategory;
+    if (!channelTotals[key]) channelTotals[key] = { forecast: 0, actual: 0, category: f.category };
+    channelTotals[key].forecast += Number(f.amount);
   }
 
-  // Map costs to forecast categories using channel-to-category mapping
-  const channelCategoryMap = buildChannelCategoryMap(forecasts);
+  // Actual costs per channel mapped to subcategory
   for (const c of costs) {
-    const cat = channelCategoryMap[c.channel] || "Overig";
-    if (!categoryTotals[cat]) categoryTotals[cat] = { forecast: 0, actual: 0 };
-    categoryTotals[cat].actual += Number(c.amount);
+    const sub = CHANNEL_TO_SUBCATEGORY[c.channel];
+    if (!sub) continue;
+    if (!channelTotals[sub]) {
+      channelTotals[sub] = { forecast: 0, actual: 0, category: CHANNEL_TO_CATEGORY[c.channel] || "Overig" };
+    }
+    channelTotals[sub].actual += Number(c.amount);
   }
 
-  res.json({ comparison, categoryTotals });
+  res.json({ comparison, channelTotals });
 });
 
 // Get all categories (for the admin form)
@@ -162,29 +167,33 @@ router.delete("/:id", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, 
   res.json({ message: "Deleted" });
 });
 
-// Helper: map cost channels to budget categories based on subcategory names
-function buildChannelCategoryMap(forecasts: { category: string; subcategory: string | null }[]): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const f of forecasts) {
-    if (f.subcategory) {
-      // Direct subcategory name as channel
-      map[f.subcategory] = f.category;
-    }
-  }
-  // Explicit overrides for known channel names → budget categories
-  map["Solvari"] = "Lead Kanalen";
-  map["Red Pepper"] = "Lead Kanalen";
-  map["Renocheck"] = "Lead Kanalen";
-  map["PPA"] = "Lead Kanalen";
-  map["META Leads"] = "Lead Kanalen";
-  map["GOOGLE"] = "Lead Kanalen";
-  map["Serieus Verbouwen"] = "Lead Kanalen";
-  map["Bouw En Reno"] = "Beurzen";
-  map["Bis Beurs"] = "Beurzen";
-  map["Website"] = "Lead Kanalen";
-  map["Eigen lead medewerker"] = "Lead Kanalen";
-  map["Referentie (van de klant)"] = "Lead Kanalen";
-  return map;
-}
+// Map actual cost channel names → budget subcategory names
+const CHANNEL_TO_SUBCATEGORY: Record<string, string> = {
+  "Solvari": "Solvari",
+  "Red Pepper": "Social Ads (Meta, Tiktok, Youtube)",
+  "META Leads": "Social Ads (Meta, Tiktok, Youtube)",
+  "GOOGLE": "SEA (Google/Bing zoekcampagnes)",
+  "PPA": "RedPepper PPA",
+  "Renocheck": "Renocheck",
+  "Serieus Verbouwen": "Serieus Verbouwen",
+  "Bouw En Reno": "Bouw en Reno",
+  "Bis Beurs": "BIS BEURS 2026",
+};
+
+// Map cost channel → budget category
+const CHANNEL_TO_CATEGORY: Record<string, string> = {
+  "Solvari": "Lead Kanalen",
+  "Red Pepper": "Lead Kanalen",
+  "META Leads": "Lead Kanalen",
+  "GOOGLE": "Lead Kanalen",
+  "PPA": "Lead Kanalen",
+  "Renocheck": "Lead Kanalen",
+  "Serieus Verbouwen": "Lead Kanalen",
+  "Bouw En Reno": "Beurzen",
+  "Bis Beurs": "Beurzen",
+  "Website": "Lead Kanalen",
+  "Eigen lead medewerker": "Lead Kanalen",
+  "Referentie (van de klant)": "Lead Kanalen",
+};
 
 export default router;
