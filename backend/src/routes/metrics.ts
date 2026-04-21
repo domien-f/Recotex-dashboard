@@ -24,7 +24,11 @@ router.get("/overview", async (req: AuthRequest, res: Response) => {
 
   const dealWhere: any = {};
   const costWhere: any = {};
-  if (herkomst) dealWhere.herkomst = multiFilter(herkomst);
+  if (herkomst) {
+    dealWhere.herkomst = multiFilter(herkomst);
+    // Also filter costs by the same channels
+    costWhere.channel = multiFilter(herkomst);
+  }
   else dealWhere.herkomst = { notIn: EXCLUDED_HERKOMST };
   if (status) dealWhere.status = multiFilter(status);
   if (typeWerken) dealWhere.typeWerken = multiFilter(typeWerken);
