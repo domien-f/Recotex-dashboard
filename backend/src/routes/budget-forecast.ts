@@ -170,7 +170,7 @@ router.delete("/:id", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, 
 // Map actual cost channel names → budget subcategory names
 const CHANNEL_TO_SUBCATEGORY: Record<string, string> = {
   "Solvari": "Solvari",
-  "Red Pepper": "RedPepper PPA",
+  "Red Pepper": "Social Ads (Meta, Tiktok, Youtube)",
   "PPA": "RedPepper PPA",
   "META Leads": "Social Ads (Meta, Tiktok, Youtube)",
   "GOOGLE": "SEA (Google/Bing zoekcampagnes)",

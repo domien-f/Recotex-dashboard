@@ -8,7 +8,7 @@ import { useFilterStore } from "@/store/filterStore";
 import { useAuthStore } from "@/store/authStore";
 import api from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { TrendingUp, TrendingDown, CheckCircle, AlertTriangle, XCircle, Plus, Save, Trash2, Wallet, BarChart3, Target } from "lucide-react";
+import { TrendingUp, CheckCircle, AlertTriangle, XCircle, Plus, Save, Trash2, Wallet, BarChart3, Target } from "lucide-react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -91,100 +91,110 @@ function AnalyticsView() {
   const now = new Date();
   const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const pastMonths = comparison.filter((c) => c.month < currentYM);
-  const pastForecast = pastMonths.reduce((s, c) => s + c.forecast, 0);
-  const pastActual = pastMonths.reduce((s, c) => s + c.actual, 0);
-  const pastVariance = pastActual - pastForecast;
 
-  const status: "success" | "warning" | "danger" =
-    pastForecast === 0 ? "success" :
-    Math.abs(pastVariance / pastForecast) <= 0.05 ? "success" :
-    Math.abs(pastVariance / pastForecast) <= 0.15 ? "warning" : "danger";
+  // Holt's double exponential smoothing for trend prediction
+  function holtForecast(actuals: number[], periods: number, alpha = 0.4, beta = 0.3): number[] {
+    if (actuals.length < 2) return Array(periods).fill(actuals[0] || 0);
+    let level = actuals[0];
+    let trend = actuals[1] - actuals[0];
+    for (let i = 1; i < actuals.length; i++) {
+      const prevLevel = level;
+      level = alpha * actuals[i] + (1 - alpha) * (level + trend);
+      trend = beta * (level - prevLevel) + (1 - beta) * trend;
+    }
+    const forecasted: number[] = [];
+    for (let i = 1; i <= periods; i++) {
+      forecasted.push(Math.max(0, Math.round(level + trend * i)));
+    }
+    return forecasted;
+  }
 
-  const statusColors = { success: "text-emerald-600", warning: "text-amber-600", danger: "text-red-600" };
-  const statusBg = { success: "bg-emerald-500", warning: "bg-amber-400", danger: "bg-red-500" };
+  // Build the combined timeline chart data
+  const actualValues = pastMonths.map((c) => c.actual);
+  const currentMonth = comparison.find((c) => c.month === currentYM);
+  if (currentMonth && currentMonth.actual > 0) actualValues.push(currentMonth.actual);
 
-  // Chart data: add cumulative
-  let cumForecast = 0;
-  let cumActual = 0;
-  const chartData = comparison.map((c) => {
-    cumForecast += c.forecast;
-    cumActual += c.actual;
-    return {
+  const futureMonths = comparison.filter((c) => c.month > currentYM || (c.month === currentYM && (!currentMonth || currentMonth.actual === 0)));
+  const predicted = holtForecast(actualValues, futureMonths.length + (currentMonth && currentMonth.actual === 0 ? 1 : 0));
+
+  let predIdx = 0;
+  const timelineData = comparison.map((c) => {
+    const isPast = c.month < currentYM;
+    const isCurrent = c.month === currentYM;
+    const hasActual = (isPast || isCurrent) && c.actual > 0;
+
+    const row: any = {
       month: c.month,
-      forecast: Math.round(c.forecast),
-      actual: Math.round(c.actual),
-      cumForecast: Math.round(cumForecast),
-      cumActual: Math.round(cumActual),
+      budget: Math.round(c.forecast),
     };
+
+    if (hasActual) {
+      row.actual = Math.round(c.actual);
+      row.predicted = Math.round(c.actual); // trend line passes through actuals
+    } else {
+      row.budgetFuture = Math.round(c.forecast);
+      row.predicted = predicted[predIdx++] ?? null;
+    }
+
+    return row;
   });
 
+  // Year-end prediction
+  const totalPredicted = timelineData.reduce((s, d) => s + (d.actual || d.predicted || 0), 0);
 
   return (
     <div className="space-y-8">
+      {/* Hero chart — Actual vs Budget vs Forecast trend */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Budget vs Werkelijk vs Voorspelling</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Trend gebaseerd op Holt's exponential smoothing — voorspeld jaartotaal: <span className="font-semibold text-foreground">{formatCurrency(totalPredicted)}</span>
+                {totalForecast > 0 && <span> ({totalPredicted <= totalForecast ? "" : "+"}{((totalPredicted - totalForecast) / totalForecast * 100).toFixed(1)}% t.o.v. budget)</span>}
+              </p>
+            </div>
+            <div className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+              totalPredicted <= totalForecast * 1.05 ? "bg-emerald-500/10 text-emerald-600" :
+              totalPredicted <= totalForecast * 1.15 ? "bg-amber-400/10 text-amber-600" :
+              "bg-red-500/10 text-red-600"
+            }`}>
+              {totalPredicted <= totalForecast * 1.05 ? <CheckCircle className="h-3.5 w-3.5" /> :
+               totalPredicted <= totalForecast * 1.15 ? <AlertTriangle className="h-3.5 w-3.5" /> :
+               <XCircle className="h-3.5 w-3.5" />}
+              {totalPredicted <= totalForecast * 1.05 ? "Op schema" : totalPredicted <= totalForecast * 1.15 ? "Let op" : "Over budget"}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={400}>
+            <ComposedChart data={timelineData} barGap={2}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} tickFormatter={(v) => formatMonth(v)} />
+              <YAxis tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend formatter={(v: string) => <span className="text-xs text-muted-foreground">{v}</span>} />
+              {/* Past actual bars — solid dark */}
+              <Bar dataKey="actual" fill="#1a3860" name="Werkelijk" radius={[4, 4, 0, 0]} />
+              {/* Future budget bars — faded */}
+              <Bar dataKey="budgetFuture" fill="#1a3860" name="Budget" radius={[4, 4, 0, 0]} opacity={0.2} />
+              {/* Forecast trend line — red */}
+              <Line type="monotone" dataKey="predicted" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3, fill: "#ef4444" }} strokeDasharray="0" name="Voorspelling" connectNulls={false} />
+              {/* Budget line for reference */}
+              <Line type="monotone" dataKey="budget" stroke="#10b981" strokeWidth={1.5} dot={false} strokeDasharray="6 4" name="Budget lijn" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         <KpiCard title="Gebudgetteerd" value={formatCurrency(totalForecast)} icon={<Target className="h-4 w-4" />} formula={{ label: "Budget Forecast", description: "Som van alle gebudgetteerde bedragen", formula: "Σ maandelijks budget per categorie" }} />
         <KpiCard title="Werkelijke Kost" value={formatCurrency(totalActual)} icon={<Wallet className="h-4 w-4" />} />
-        <KpiCard title="Verschil" value={formatCurrency(Math.abs(totalVariance))} icon={totalVariance <= 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} formula={{ label: "Budget Variance", description: totalVariance > 0 ? "Over budget" : "Onder budget", formula: "Werkelijke kost − Gebudgetteerd" }} />
-        <KpiCard title="Afwijking %" value={`${totalVariancePct >= 0 ? "+" : ""}${totalVariancePct.toFixed(1)}%`} icon={<BarChart3 className="h-4 w-4" />} />
+        <KpiCard title="Voorspeld Jaartotaal" value={formatCurrency(totalPredicted)} icon={<TrendingUp className="h-4 w-4" />} formula={{ label: "Holt's Forecast", description: "Voorspelling o.b.v. trend in werkelijke kosten", formula: "Exponential smoothing (α=0.4, β=0.3)" }} />
+        <KpiCard title="Budget Verbruik" value={`${totalForecast > 0 ? ((totalActual / totalForecast) * 100).toFixed(1) : "0"}%`} icon={<BarChart3 className="h-4 w-4" />} formula={{ label: "Budget Verbruik", description: "Hoeveel % van het budget al besteed", formula: "Werkelijke kost ÷ Budget × 100%" }} />
       </div>
-
-      {/* Overall status banner */}
-      {pastMonths.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className={`h-1 ${statusBg[status]}`} />
-          <CardContent className="py-4 flex items-center gap-3">
-            {status === "success" ? <CheckCircle className={`h-5 w-5 ${statusColors[status]}`} /> :
-             status === "warning" ? <AlertTriangle className={`h-5 w-5 ${statusColors[status]}`} /> :
-             <XCircle className={`h-5 w-5 ${statusColors[status]}`} />}
-            <div>
-              <p className={`text-sm font-semibold ${statusColors[status]}`}>
-                {status === "success" ? "Op schema" : status === "warning" ? "Lichte afwijking" : "Significante afwijking"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Voorbije maanden: {formatCurrency(pastActual)} werkelijk vs {formatCurrency(pastForecast)} gebudgetteerd
-                ({pastVariance > 0 ? "+" : ""}{pastForecast > 0 ? ((pastVariance / pastForecast) * 100).toFixed(1) : "0"}%)
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Monthly comparison chart */}
-      <Card>
-        <CardHeader><CardTitle>Maandelijks: Budget vs Werkelijk</CardTitle></CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={350}>
-            <ComposedChart data={chartData} barGap={4}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} tickFormatter={(v) => formatMonth(v)} />
-              <YAxis tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend formatter={(v: string) => <span className="text-xs text-muted-foreground">{v}</span>} />
-              <Bar dataKey="forecast" fill="#1a3860" name="Budget" radius={[4, 4, 0, 0]} opacity={0.4} />
-              <Bar dataKey="actual" fill="#f08300" name="Werkelijk" radius={[4, 4, 0, 0]} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
-      {/* Cumulative chart */}
-      <Card>
-        <CardHeader><CardTitle>Cumulatief: Budget vs Werkelijk</CardTitle></CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} tickFormatter={(v) => formatMonth(v)} />
-              <YAxis tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend formatter={(v: string) => <span className="text-xs text-muted-foreground">{v}</span>} />
-              <Line type="monotone" dataKey="cumForecast" stroke="#1a3860" strokeWidth={2.5} dot={{ r: 3 }} name="Budget (cum.)" />
-              <Line type="monotone" dataKey="cumActual" stroke="#f08300" strokeWidth={2.5} dot={{ r: 3 }} name="Werkelijk (cum.)" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
 
       {/* Per-channel breakdown table */}
       <Card>
