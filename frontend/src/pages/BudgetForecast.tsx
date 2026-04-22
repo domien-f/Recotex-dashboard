@@ -67,9 +67,19 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 function AnalyticsView() {
   const { dateFrom, dateTo } = useFilterStore();
 
+  // Extend 3 months ahead for the prediction timeline
+  const extendedTo = (() => {
+    const d = new Date(dateTo);
+    d.setMonth(d.getMonth() + 3);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const last = new Date(y, d.getMonth() + 1, 0).getDate();
+    return `${y}-${m}-${String(last).padStart(2, "0")}`;
+  })();
+
   const { data, isLoading } = useQuery<ComparisonData>({
-    queryKey: ["budget-comparison", dateFrom, dateTo],
-    queryFn: async () => (await api.get("/budget-forecast/comparison", { params: { dateFrom, dateTo } })).data,
+    queryKey: ["budget-comparison", dateFrom, extendedTo],
+    queryFn: async () => (await api.get("/budget-forecast/comparison", { params: { dateFrom, dateTo: extendedTo } })).data,
   });
 
   if (isLoading || !data) {
@@ -82,8 +92,12 @@ function AnalyticsView() {
 
   const { comparison, channelTotals } = data;
 
-  const totalForecast = comparison.reduce((s, c) => s + c.forecast, 0);
-  const totalActual = comparison.reduce((s, c) => s + c.actual, 0);
+  // Original date range for KPI calculations (without the 3-month extension)
+  const dateToYM = dateTo.slice(0, 7);
+  const inRange = comparison.filter((c) => c.month <= dateToYM);
+
+  const totalForecast = inRange.reduce((s, c) => s + c.forecast, 0);
+  const totalActual = inRange.reduce((s, c) => s + c.actual, 0);
   const totalVariance = totalActual - totalForecast;
   const totalVariancePct = totalForecast > 0 ? (totalVariance / totalForecast) * 100 : 0;
 
