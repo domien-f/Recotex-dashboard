@@ -143,11 +143,13 @@ function AnalyticsView() {
     return row;
   });
 
-  // Year-end prediction: past months use actual, current + future use predicted
+  // Prediction total: past months use actual, current + future use predicted
   const totalPredicted = timelineData.reduce((s, d) => {
     const isPast = d.month < currentYM;
     return s + (isPast ? (d.actual || 0) : (d.predicted || 0));
   }, 0);
+  // Total budget across the full chart range (including the 3 extra months)
+  const chartBudgetTotal = comparison.reduce((s, c) => s + c.forecast, 0);
 
   return (
     <div className="space-y-8">
@@ -158,19 +160,22 @@ function AnalyticsView() {
             <div>
               <CardTitle>Budget vs Werkelijk vs Voorspelling</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Voorspelling op basis van gewogen spend ratio ({(weightedRatio * 100).toFixed(0)}% van budget) — voorspeld jaartotaal: <span className="font-semibold text-foreground">{formatCurrency(totalPredicted)}</span>
-                {totalForecast > 0 && <span> ({totalPredicted <= totalForecast ? "" : "+"}{((totalPredicted - totalForecast) / totalForecast * 100).toFixed(1)}% t.o.v. budget)</span>}
+                Voorspelling op basis van gewogen spend ratio ({(weightedRatio * 100).toFixed(0)}% van budget) — voorspeld totaal: <span className="font-semibold text-foreground">{formatCurrency(totalPredicted)}</span>
+                {chartBudgetTotal > 0 && <span> ({totalPredicted <= chartBudgetTotal ? "" : "+"}{((totalPredicted - chartBudgetTotal) / chartBudgetTotal * 100).toFixed(1)}% t.o.v. budget)</span>}
               </p>
             </div>
             <div className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
-              totalPredicted <= totalForecast * 1.05 ? "bg-emerald-500/10 text-emerald-600" :
-              totalPredicted <= totalForecast * 1.15 ? "bg-amber-400/10 text-amber-600" :
+              chartBudgetTotal === 0 ? "bg-muted text-muted-foreground" :
+              totalPredicted <= chartBudgetTotal * 1.05 ? "bg-emerald-500/10 text-emerald-600" :
+              totalPredicted <= chartBudgetTotal * 1.15 ? "bg-amber-400/10 text-amber-600" :
               "bg-red-500/10 text-red-600"
             }`}>
-              {totalPredicted <= totalForecast * 1.05 ? <CheckCircle className="h-3.5 w-3.5" /> :
-               totalPredicted <= totalForecast * 1.15 ? <AlertTriangle className="h-3.5 w-3.5" /> :
+              {chartBudgetTotal === 0 ? null :
+               totalPredicted <= chartBudgetTotal * 1.05 ? <CheckCircle className="h-3.5 w-3.5" /> :
+               totalPredicted <= chartBudgetTotal * 1.15 ? <AlertTriangle className="h-3.5 w-3.5" /> :
                <XCircle className="h-3.5 w-3.5" />}
-              {totalPredicted <= totalForecast * 1.05 ? "Op schema" : totalPredicted <= totalForecast * 1.15 ? "Let op" : "Over budget"}
+              {chartBudgetTotal === 0 ? "Geen budget" :
+               totalPredicted <= chartBudgetTotal * 1.05 ? "Op schema" : totalPredicted <= chartBudgetTotal * 1.15 ? "Let op" : "Over budget"}
             </div>
           </div>
         </CardHeader>
