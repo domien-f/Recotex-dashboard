@@ -77,12 +77,19 @@ function AnalyticsView() {
     return `${y}-${m}-${String(last).padStart(2, "0")}`;
   })();
 
-  const { data, isLoading } = useQuery<ComparisonData>({
-    queryKey: ["budget-comparison", dateFrom, extendedTo],
+  // Chart data: extended range for prediction
+  const { data: chartData, isLoading: loadingChart } = useQuery<ComparisonData>({
+    queryKey: ["budget-comparison-chart", dateFrom, extendedTo],
     queryFn: async () => (await api.get("/budget-forecast/comparison", { params: { dateFrom, dateTo: extendedTo } })).data,
   });
 
-  if (isLoading || !data) {
+  // Table/KPI data: original date range
+  const { data, isLoading } = useQuery<ComparisonData>({
+    queryKey: ["budget-comparison", dateFrom, dateTo],
+    queryFn: async () => (await api.get("/budget-forecast/comparison", { params: { dateFrom, dateTo } })).data,
+  });
+
+  if (isLoading || loadingChart || !data || !chartData) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -91,13 +98,10 @@ function AnalyticsView() {
   }
 
   const { comparison, channelTotals } = data;
+  const chartComparison = chartData.comparison;
 
-  // Original date range for KPI calculations (without the 3-month extension)
-  const dateToYM = dateTo.slice(0, 7);
-  const inRange = comparison.filter((c) => c.month <= dateToYM);
-
-  const totalForecast = inRange.reduce((s, c) => s + c.forecast, 0);
-  const totalActual = inRange.reduce((s, c) => s + c.actual, 0);
+  const totalForecast = comparison.reduce((s, c) => s + c.forecast, 0);
+  const totalActual = comparison.reduce((s, c) => s + c.actual, 0);
   const totalVariance = totalActual - totalForecast;
   const totalVariancePct = totalForecast > 0 ? (totalVariance / totalForecast) * 100 : 0;
 
@@ -105,10 +109,7 @@ function AnalyticsView() {
   const now = new Date();
   const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   // Budget-adjusted forecast: uses actual/budget ratio to predict future months
-  // For each past month, calculate how much of the budget was actually spent (ratio).
-  // Then use a weighted average of those ratios to scale future budget months.
-  // Only use fully completed months for the ratio — current month is partial
-  const completedMonths = comparison.filter((c) => c.month < currentYM && c.forecast > 0);
+  const completedMonths = chartComparison.filter((c) => c.month < currentYM && c.forecast > 0);
 
   // Calculate spend ratios (actual / budget) with recency weighting
   const ratios = completedMonths.map((c, i) => ({
@@ -120,7 +121,7 @@ function AnalyticsView() {
     ? ratios.reduce((s, r) => s + r.ratio * r.weight, 0) / ratios.reduce((s, r) => s + r.weight, 0)
     : 1;
 
-  const timelineData = comparison.map((c) => {
+  const timelineData = chartComparison.map((c) => {
     const isPast = c.month < currentYM;
     const isCurrent = c.month === currentYM;
     const row: any = {
@@ -149,7 +150,7 @@ function AnalyticsView() {
     return s + (isPast ? (d.actual || 0) : (d.predicted || 0));
   }, 0);
   // Total budget across the full chart range (including the 3 extra months)
-  const chartBudgetTotal = comparison.reduce((s, c) => s + c.forecast, 0);
+  const chartBudgetTotal = chartComparison.reduce((s, c) => s + c.forecast, 0);
 
   return (
     <div className="space-y-8">
