@@ -16,6 +16,7 @@ import { TeamleaderImportPage } from "./pages/TeamleaderImport";
 import { AiAssistantPage } from "./pages/AiAssistant";
 import { ReportPage } from "./pages/Report";
 import { BudgetForecastPage } from "./pages/BudgetForecast";
+import { SalesFunnelPage } from "./pages/SalesFunnel";
 import { useAuth } from "./hooks/useAuth";
 
 const queryClient = new QueryClient({
@@ -56,6 +57,7 @@ function App() {
             <Route path="/reclamaties" element={<ReclamatiesPage />} />
             <Route path="/won" element={<WonLeadsPage />} />
             <Route path="/afspraken" element={<AppointmentsPage />} />
+            <Route path="/sales-funnel" element={<SalesFunnelPage />} />
             <Route path="/kosten" element={<CostsPage />} />
             <Route path="/kpi" element={<KpiSettingsPage />} />
             <Route path="/herkomst" element={<LeadSourcesPage />} />

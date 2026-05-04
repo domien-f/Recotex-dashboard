@@ -15,6 +15,7 @@ import {
   Sparkles,
   FileDown,
   Upload,
+  Filter,
 } from "lucide-react";
 
 const mainNav = [
@@ -23,6 +24,7 @@ const mainNav = [
   { to: "/reclamaties", icon: AlertTriangle, label: "Reclamaties" },
   { to: "/won", icon: Trophy, label: "Won Leads" },
   { to: "/afspraken", icon: CalendarCheck, label: "Afspraken" },
+  { to: "/sales-funnel", icon: Filter, label: "Sales Funnel" },
 ];
 
 const analyticsNav = [

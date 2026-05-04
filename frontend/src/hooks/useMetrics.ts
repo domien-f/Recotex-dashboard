@@ -45,3 +45,41 @@ export function useLeadSources() {
     queryFn: async () => (await api.get("/metrics/lead-sources", { params })).data,
   });
 }
+
+export interface SalesFunnelPerson {
+  verantwoordelijke: string;
+  leads: number;
+  afspraken: number;
+  totalAppointments: number;
+  cancelledAppointments: number;
+  offersSent: number;
+  afsprakenWithOffer: number;
+  won: number;
+  lost: number;
+  revenue: number;
+  avgDealValue: number;
+  revenuePerAppointment: number;
+  revenuePerOffer: number;
+  offerToWon: number;
+  afspraakToOffer: number;
+  cancellationRate: number;
+  leadToAfspraak: number;
+  afspraakToWon: number;
+  leadToWon: number;
+  avgCycleDays: number;
+  avgSpeedToAfspraakDays: number;
+  topChannel: { name: string; count: number } | null;
+}
+
+export interface SalesFunnelData {
+  perPerson: SalesFunnelPerson[];
+  totals: SalesFunnelPerson;
+}
+
+export function useSalesFunnel() {
+  const { params, key } = useFilters();
+  return useQuery<SalesFunnelData>({
+    queryKey: ["metrics", "sales-funnel", ...key],
+    queryFn: async () => (await api.get("/metrics/sales-funnel", { params })).data,
+  });
+}

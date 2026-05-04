@@ -548,4 +548,174 @@ router.get("/reclamations", async (req: AuthRequest, res: Response) => {
   });
 });
 
+// Sales funnel per verantwoordelijke: Lead → Afspraak gemaakt → Deal gewonnen
+router.get("/sales-funnel", async (req: AuthRequest, res: Response) => {
+  const { dateFrom, dateTo, dateMode, herkomst, status, typeWerken, verantwoordelijke } = req.query;
+
+  const where: any = {};
+  if (dateFrom || dateTo) {
+    const df = dateField(dateMode);
+    where[df] = {};
+    if (dateFrom) where[df].gte = new Date(dateFrom as string);
+    if (dateTo) where[df].lte = new Date(dateTo as string);
+  }
+  if (herkomst) where.herkomst = multiFilter(herkomst);
+  else where.herkomst = { notIn: EXCLUDED_HERKOMST };
+  if (status) where.status = multiFilter(status);
+  if (typeWerken) where.typeWerken = multiFilter(typeWerken);
+  if (verantwoordelijke) where.verantwoordelijke = multiFilter(verantwoordelijke);
+
+  const deals = await prisma.deal.findMany({
+    where,
+    select: {
+      id: true,
+      verantwoordelijke: true,
+      status: true,
+      phase: true,
+      revenue: true,
+      wonAt: true,
+      dealCreatedAt: true,
+      herkomst: true,
+      appointments: { select: { outcome: true, date: true } },
+    },
+  });
+
+  // Phases that mean an offerte was sent at some point (current phase or further)
+  const OFFER_SENT_PHASE = /offerte verzonden|negotiati|technisch gevalideerd|aanvaard|voorschot|eindfactuur|klaar voor|nazorg|afsluit|referent/i;
+  const hadOfferSent = (phase: string | null, status: string) =>
+    status === "WON" || (phase ? OFFER_SENT_PHASE.test(phase) : false);
+
+  type Bucket = {
+    leads: number;
+    afspraken: number;
+    cancelledAppointments: number;
+    totalAppointments: number;
+    offersSent: number;
+    afsprakenWithOffer: number;
+    won: number;
+    lost: number;
+    revenue: number;
+    cycleSum: number;
+    cycleCount: number;
+    speedSum: number;
+    speedCount: number;
+    channels: Record<string, number>;
+  };
+
+  const empty = (): Bucket => ({
+    leads: 0, afspraken: 0, cancelledAppointments: 0, totalAppointments: 0,
+    offersSent: 0, afsprakenWithOffer: 0,
+    won: 0, lost: 0,
+    revenue: 0, cycleSum: 0, cycleCount: 0,
+    speedSum: 0, speedCount: 0, channels: {},
+  });
+
+  const grouped: Record<string, Bucket> = {};
+  const totals = empty();
+
+  for (const d of deals) {
+    const v = d.verantwoordelijke || "Niet toegewezen";
+    if (!grouped[v]) grouped[v] = empty();
+    const g = grouped[v];
+
+    g.leads++;
+    totals.leads++;
+
+    g.totalAppointments += d.appointments.length;
+    totals.totalAppointments += d.appointments.length;
+    const cancelled = d.appointments.filter((a) => a.outcome === "CANCELLED").length;
+    g.cancelledAppointments += cancelled;
+    totals.cancelledAppointments += cancelled;
+
+    const validApps = d.appointments.filter((a) => a.outcome !== "CANCELLED");
+    const hasOffer = hadOfferSent(d.phase, d.status);
+    if (hasOffer) {
+      g.offersSent++;
+      totals.offersSent++;
+    }
+
+    if (validApps.length > 0) {
+      g.afspraken++;
+      totals.afspraken++;
+      if (hasOffer) {
+        g.afsprakenWithOffer++;
+        totals.afsprakenWithOffer++;
+      }
+
+      // Speed: days from lead creation to first appointment
+      if (d.dealCreatedAt) {
+        const firstApp = validApps.reduce((earliest, a) =>
+          a.date < earliest ? a.date : earliest, validApps[0].date);
+        const days = (new Date(firstApp).getTime() - new Date(d.dealCreatedAt).getTime()) / 86400000;
+        if (days >= 0 && days < 365) {
+          g.speedSum += days;
+          g.speedCount++;
+          totals.speedSum += days;
+          totals.speedCount++;
+        }
+      }
+    }
+
+    if (d.status === "WON") {
+      g.won++;
+      totals.won++;
+      g.revenue += Number(d.revenue || 0);
+      totals.revenue += Number(d.revenue || 0);
+      if (d.wonAt && d.dealCreatedAt) {
+        const days = (new Date(d.wonAt).getTime() - new Date(d.dealCreatedAt).getTime()) / 86400000;
+        if (days >= 0) {
+          g.cycleSum += days;
+          g.cycleCount++;
+          totals.cycleSum += days;
+          totals.cycleCount++;
+        }
+      }
+    } else if (d.status === "LOST") {
+      g.lost++;
+      totals.lost++;
+    }
+
+    const ch = d.herkomst || "Onbekend";
+    g.channels[ch] = (g.channels[ch] || 0) + 1;
+    totals.channels[ch] = (totals.channels[ch] || 0) + 1;
+  }
+
+  const fmt = (b: Bucket, name: string) => {
+    const topChannel = Object.entries(b.channels).sort((a, b) => b[1] - a[1])[0];
+    return {
+      verantwoordelijke: name,
+      leads: b.leads,
+      afspraken: b.afspraken,
+      totalAppointments: b.totalAppointments,
+      cancelledAppointments: b.cancelledAppointments,
+      offersSent: b.offersSent,
+      afsprakenWithOffer: b.afsprakenWithOffer,
+      won: b.won,
+      lost: b.lost,
+      revenue: Math.round(b.revenue),
+      avgDealValue: b.won > 0 ? Math.round(b.revenue / b.won) : 0,
+      revenuePerAppointment: b.afspraken > 0 ? Math.round(b.revenue / b.afspraken) : 0,
+      revenuePerOffer: b.offersSent > 0 ? Math.round(b.revenue / b.offersSent) : 0,
+      offerToWon: b.offersSent > 0 ? +((b.won / b.offersSent) * 100).toFixed(1) : 0,
+      afspraakToOffer: b.afspraken > 0 ? +((b.afsprakenWithOffer / b.afspraken) * 100).toFixed(1) : 0,
+      cancellationRate: b.totalAppointments > 0 ? +((b.cancelledAppointments / b.totalAppointments) * 100).toFixed(1) : 0,
+      leadToAfspraak: b.leads > 0 ? +((b.afspraken / b.leads) * 100).toFixed(1) : 0,
+      afspraakToWon: b.afspraken > 0 ? +((b.won / b.afspraken) * 100).toFixed(1) : 0,
+      leadToWon: b.leads > 0 ? +((b.won / b.leads) * 100).toFixed(1) : 0,
+      avgCycleDays: b.cycleCount > 0 ? +(b.cycleSum / b.cycleCount).toFixed(1) : 0,
+      avgSpeedToAfspraakDays: b.speedCount > 0 ? +(b.speedSum / b.speedCount).toFixed(1) : 0,
+      topChannel: topChannel ? { name: topChannel[0], count: topChannel[1] } : null,
+    };
+  };
+
+  const perPerson = Object.entries(grouped)
+    .map(([name, b]) => fmt(b, name))
+    .sort((a, b) => b.leads - a.leads);
+
+  res.json({
+    perPerson,
+    totals: fmt(totals, "Totaal"),
+  });
+});
+
 export default router;
