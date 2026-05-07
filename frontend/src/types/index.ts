@@ -45,11 +45,65 @@ export interface Appointment {
   id: string;
   dealId: string;
   date: string;
+  scheduledAt?: string;
   cost?: number;
   outcome: AppointmentOutcome;
   channel?: string;
   notes?: string;
+  responsibleUserId?: string;
+  responsibleUserName?: string;
+  cancelledAt?: string;
+  completedAt?: string;
+  source?: string;
   deal?: Deal & { contact?: Contact };
+}
+
+export interface BezettingRow {
+  verantwoordelijke: string;
+  weekKey: string;
+  weekStart: string;
+  weekEnd: string;
+  ingepland: number;
+  doorgegaan: number;
+  geannuleerd: number;
+  pending: number;
+  won: number;
+  futurePending: number;
+  target: number | null;
+  bezettingsgraad: number | null;
+  doorgangsRatio: number | null;     // doorgegaan / (doorgegaan + geannuleerd) × 100
+  annulatieRatio: number | null;     // geannuleerd / (doorgegaan + geannuleerd) × 100
+}
+
+export interface BezettingResponse {
+  rows: BezettingRow[];
+  weekTotals: Array<{
+    weekKey: string;
+    weekStart: string;
+    weekEnd: string;
+    ingepland: number;
+    doorgegaan: number;
+    geannuleerd: number;
+    pending: number;
+    won: number;
+    futurePending: number;
+  }>;
+  targets: Record<string, number>;
+  summary: {
+    totalIngepland: number;
+    totalDoorgegaan: number;
+    totalGeannuleerd: number;
+    doorgangsRatio: number | null;
+    annulatieRatio: number | null;
+  };
+}
+
+export interface AppointmentTargetRow {
+  verantwoordelijke: string;
+  weeklyTarget: number | null;
+  teamleaderUserId: string | null;
+  effectiveFrom: string | null;
+  targetId: string | null;
 }
 
 export interface Cost {

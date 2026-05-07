@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useReclamationStats, useReclamationDeals } from "@/hooks/useDeals";
+import { useReclamationStats } from "@/hooks/useDeals";
 import { formatNumber, formatPercent } from "@/lib/utils";
 import { AlertTriangle, Ban, Users, TrendingDown } from "lucide-react";
 import { MetricLabel } from "@/components/ui/metric-label";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { DealsDrillModal, type DrillFilter } from "@/components/dashboard/DealsDrillModal";
+import { DrillableNumber } from "@/components/dashboard/DrillableNumber";
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line,
@@ -39,15 +39,14 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           {entry.name}: <span className="font-semibold text-foreground">{entry.value}</span>
         </p>
       ))}
+      <p className="mt-1 text-[10px] text-muted-foreground/70 italic">Klik voor de deals</p>
     </div>
   );
 };
 
 export function ReclamatiesPage() {
+  const [drill, setDrill] = useState<DrillFilter | null>(null);
   const { data: stats, isLoading: loadingStats } = useReclamationStats();
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const { data: dealsData, isLoading: loadingDeals } = useReclamationDeals(search, page);
 
   if (loadingStats) {
     return (
@@ -71,21 +70,26 @@ export function ReclamatiesPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Reclamaties</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Niet-bruikbare deals categoriseren en analyseren per bron</p>
+        <p className="mt-1 text-sm text-muted-foreground">Niet-bruikbare deals categoriseren en analyseren per bron · klik op een waarde voor details</p>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-        <KpiCard title="Totaal Reclamaties" value={formatNumber(stats?.totalReclamations || 0)} icon={<AlertTriangle className="h-4 w-4" />} />
+        <KpiCard title="Totaal Reclamaties" value={formatNumber(stats?.totalReclamations || 0)} icon={<AlertTriangle className="h-4 w-4" />} onClick={() => setDrill({ reclamation: "true", title: "Alle reclamaties" })} formula={{ label: "Totaal Reclamaties", description: "Aantal deals met een reclamatie-reden of 'Reclamaties' fase" }} />
         <KpiCard title="Reclamatie %" value={formatPercent(stats?.reclamationRate || 0)} icon={<Ban className="h-4 w-4" />} formula={{ label: "Reclamatie Percentage", description: "Contacten met reclamatie (zonder WON)", formula: "(Reclamatie contacten ÷ Totaal contacten) × 100%" }} />
-        <KpiCard title="Totaal Deals" value={formatNumber(stats?.totalDeals || 0)} icon={<Users className="h-4 w-4" />} />
-        <KpiCard title="Meest voorkomend" value={stats?.byCategory[0]?.reason || "-"} icon={<TrendingDown className="h-4 w-4" />} />
+        <KpiCard title="Totaal Deals" value={formatNumber(stats?.totalDeals || 0)} icon={<Users className="h-4 w-4" />} onClick={() => setDrill({ title: "Alle deals" })} formula={{ label: "Totaal Deals", description: "Alle deals binnen de huidige filters" }} />
+        <KpiCard title="Meest voorkomend" value={stats?.byCategory[0]?.reason || "-"} icon={<TrendingDown className="h-4 w-4" />} formula={{ label: "Meest voorkomende reden", description: "De reclamatie-reden die het vaakst voorkomt" }} />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Reclamaties per Reden</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Reclamaties per Reden
+              <InfoTooltip text="Reclamatie-redenen gerangschikt op aantal. Klik op een staaf voor de bijhorende deals." />
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={350}>
               <BarChart data={categoryData} layout="vertical" barGap={4}>
@@ -93,7 +97,8 @@ export function ReclamatiesPage() {
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="reason" tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={160} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="count" name="Reclamaties" radius={[0, 6, 6, 0]}>
+                <Bar dataKey="count" name="Reclamaties" radius={[0, 6, 6, 0]} cursor="pointer"
+                  onClick={(d: any) => setDrill({ reclamation: "true", title: `Reclamaties — ${d.fullReason}` })}>
                   {categoryData.map((entry, i) => (<Cell key={i} fill={entry.fill} />))}
                 </Bar>
               </BarChart>
@@ -104,7 +109,12 @@ export function ReclamatiesPage() {
         {/* Trend in % */}
         {stats?.trend && stats.trend.length > 1 && (
           <Card>
-            <CardHeader><CardTitle>Reclamatie Trend (%)</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                Reclamatie Trend (%)
+                <InfoTooltip text="Reclamatie-percentage per maand — laat zien of de kwaliteit verbetert of verslechtert." />
+              </CardTitle>
+            </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={350}>
                 <LineChart data={stats.trend}>
@@ -123,15 +133,20 @@ export function ReclamatiesPage() {
       {/* Channel Ratio Table */}
       {stats?.byChannel && stats.byChannel.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Reclamatie Ratio per Kanaal</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Reclamatie Ratio per Kanaal
+              <InfoTooltip text="Welk kanaal levert relatief de meeste reclamaties op. Klik op het cijfer om de deals te bekijken." />
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-border/60">
-                    <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
+                    <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Kanaal">Kanaal</InfoTooltip></th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Totaal Deals</th>
-                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reclamaties</th>
+                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Reclamatie">Reclamaties</InfoTooltip></th>
                     <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Recl.%" /></th>
                   </tr>
                 </thead>
@@ -144,14 +159,25 @@ export function ReclamatiesPage() {
                           <span className="font-medium text-foreground">{ch.channel}</span>
                         </div>
                       </td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.totalDeals}</td>
-                      <td className="py-3.5 text-right font-medium tabular-nums text-destructive">{ch.reclamations}</td>
+                      <td className="py-3.5 text-right tabular-nums">
+                        <DrillableNumber filter={{ herkomst: ch.channel, title: `Alle deals — ${ch.channel}`, inheritGlobal: false }}>
+                          {ch.totalDeals}
+                        </DrillableNumber>
+                      </td>
+                      <td className="py-3.5 text-right font-medium tabular-nums text-destructive">
+                        <DrillableNumber filter={{ herkomst: ch.channel, reclamation: "true", title: `Reclamaties — ${ch.channel}`, inheritGlobal: false }} className="text-destructive">
+                          {ch.reclamations}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
-                          Number(ch.reclamationRate) > 20 ? "bg-destructive/10 text-destructive" :
-                          Number(ch.reclamationRate) > 10 ? "bg-warning/10 text-warning" :
-                          "bg-muted text-muted-foreground"
-                        }`}>{formatPercent(ch.reclamationRate)}</span>
+                        <button
+                          onClick={() => setDrill({ herkomst: ch.channel, reclamation: "true", title: `Reclamaties — ${ch.channel}`, inheritGlobal: false })}
+                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums hover:opacity-80 transition-opacity ${
+                            Number(ch.reclamationRate) > 20 ? "bg-destructive/10 text-destructive" :
+                            Number(ch.reclamationRate) > 10 ? "bg-warning/10 text-warning" :
+                            "bg-muted text-muted-foreground"
+                          }`}
+                        >{formatPercent(ch.reclamationRate)}</button>
                       </td>
                     </tr>
                   ))}
@@ -162,66 +188,27 @@ export function ReclamatiesPage() {
         </Card>
       )}
 
-      {/* Deals Table */}
+      {/* CTA */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Gereclameerde Deals</CardTitle>
-            <Input placeholder="Zoeken..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="w-72 rounded-lg" />
-          </div>
+          <CardTitle className="flex items-center gap-1.5">
+            Volledige Reclamaties Lijst
+            <InfoTooltip text="Open de uitgebreide lijst met zoekfunctie, sortering, filters en CSV-export." />
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingDeals ? (<p className="text-muted-foreground">Laden...</p>) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-muted-foreground">
-                      <th className="pb-3 font-medium">Naam</th>
-                      <th className="pb-3 font-medium">Email</th>
-                      <th className="pb-3 font-medium">Herkomst</th>
-                      <th className="pb-3 font-medium">Redenen</th>
-                      <th className="pb-3 font-medium">Datum</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dealsData?.deals.map((deal) => (
-                      <tr key={deal.id} className="border-b border-border/50 transition-colors hover:bg-accent/50">
-                        <td className="py-3 font-medium text-foreground">{deal.contact?.name || deal.title || "-"}</td>
-                        <td className="py-3 text-muted-foreground">{deal.contact?.email || "-"}</td>
-                        <td className="py-3">{deal.herkomst || "-"}</td>
-                        <td className="py-3">
-                          <div className="flex flex-wrap gap-1">
-                            {deal.reclamatieRedenen.slice(0, 2).map((r, i) => (
-                              <Badge key={i} variant="destructive">{r}</Badge>
-                            ))}
-                            {deal.reclamatieRedenen.length > 2 && (
-                              <Badge variant="outline">+{deal.reclamatieRedenen.length - 2}</Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 text-muted-foreground">
-                          {deal.dealCreatedAt ? new Date(deal.dealCreatedAt).toLocaleDateString("nl-BE") : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                    {dealsData?.deals.length === 0 && (
-                      <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">Geen reclamaties gevonden</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">{dealsData?.total || 0} reclamaties totaal</span>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Vorige</Button>
-                  <Button variant="outline" size="sm" disabled={(dealsData?.deals.length || 0) < 25} onClick={() => setPage(page + 1)}>Volgende</Button>
-                </div>
-              </div>
-            </>
-          )}
+          <button
+            onClick={() => setDrill({ reclamation: "true", title: "Alle reclamaties" })}
+            className="w-full rounded-xl border-2 border-dashed border-destructive/30 bg-destructive/5 px-6 py-8 text-center transition-colors hover:border-destructive/60 hover:bg-destructive/10"
+          >
+            <AlertTriangle className="mx-auto h-8 w-8 text-destructive" />
+            <div className="mt-2 text-sm font-semibold text-foreground">Open de Reclamaties lijst</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">Met zoeken, sorteren, filters en CSV-export</div>
+          </button>
         </CardContent>
       </Card>
+
+      {drill && <DealsDrillModal filter={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

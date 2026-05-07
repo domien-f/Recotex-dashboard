@@ -14,6 +14,8 @@ import solvariRoutes from "./routes/solvari.js";
 import aiRoutes from "./routes/ai.js";
 import reportRoutes from "./routes/report.js";
 import budgetForecastRoutes from "./routes/budget-forecast.js";
+import appointmentTargetRoutes from "./routes/appointment-targets.js";
+import webhookRoutes from "./routes/webhooks.js";
 import { startScheduler } from "./jobs/scheduler.js";
 
 export const prisma = new PrismaClient();
@@ -38,6 +40,10 @@ app.use("/api/solvari", solvariRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/report", reportRoutes);
 app.use("/api/budget-forecast", budgetForecastRoutes);
+app.use("/api/appointment-targets", appointmentTargetRoutes);
+
+// Webhook receiver — public, no auth (Teamleader can't authenticate)
+app.use("/api/webhooks", webhookRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {

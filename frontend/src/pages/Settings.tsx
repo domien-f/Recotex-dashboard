@@ -9,7 +9,10 @@ import api from "@/lib/api";
 import {
   Link2, Unlink, RefreshCw, CheckCircle, XCircle, Clock, Loader2,
   Users, Shield, UserPlus, Trash2, Key, Plug, Target, Euro,
+  Webhook, AlertTriangle, Zap, Copy,
 } from "lucide-react";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { AppointmentTargetEditor } from "./KpiSettings";
 
 // ─── Types ───
 
@@ -56,6 +59,7 @@ const PLATFORM_DESCRIPTIONS: Record<string, string> = {
 
 const TABS = [
   { id: "integraties", label: "Integraties", icon: Plug },
+  { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "gebruikers", label: "Gebruikers", icon: Users },
   { id: "cron", label: "Cron Jobs", icon: RefreshCw },
   { id: "kpi", label: "KPI Targets", icon: Target },
@@ -68,7 +72,13 @@ export function SettingsPage() {
   const isAdmin = useAuthStore((s) => s.isAdmin);
   
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>("integraties");
+  const initialTab = ((): Tab => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab");
+    if (t && (TABS as readonly { id: string }[]).some((x) => x.id === t)) return t as Tab;
+    return "integraties";
+  })();
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   // OAuth callback handling
   useEffect(() => {
@@ -108,6 +118,10 @@ export function SettingsPage() {
       </div>
 
       {tab === "integraties" && <IntegratiesTab />}
+      {tab === "webhooks" && isAdmin() && <WebhooksTab onSwitchTab={(t) => setTab(t as Tab)} />}
+      {tab === "webhooks" && !isAdmin() && (
+        <Card><CardContent className="p-6"><p className="text-muted-foreground">Alleen admins kunnen webhooks beheren.</p></CardContent></Card>
+      )}
       {tab === "gebruikers" && isAdmin() && <GebruikersTab />}
       {tab === "gebruikers" && !isAdmin() && (
         <Card><CardContent className="p-6"><p className="text-muted-foreground">Alleen admins kunnen gebruikers beheren.</p></CardContent></Card>
@@ -858,6 +872,9 @@ function KpiSettingsTab() {
         </div>
       </div>
 
+      {/* Verkoper afspraak-targets — moved here from /kpi page so all target SETTINGS live in one place */}
+      <AppointmentTargetEditor />
+
       {/* Other KPI Targets */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -897,3 +914,298 @@ function KpiSettingsTab() {
     </div>
   );
 }
+
+// ─── Webhooks Tab (Teamleader real-time) ──────────────────────────────────
+
+interface RegisteredWebhook { url: string; types: string[] }
+interface WebhookEvent {
+  id: string;
+  eventType: string;
+  entityType: string | null;
+  entityId: string | null;
+  receivedAt: string;
+  processedAt: string | null;
+  error: string | null;
+}
+function WebhooksTab({ onSwitchTab }: { onSwitchTab: (tab: string) => void }) {
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [backfillDays, setBackfillDays] = useState(30);
+
+  const { data: tlStatus } = useQuery<PlatformStatus[]>({
+    queryKey: ["integrations", "status"],
+    queryFn: async () => (await api.get("/integrations/status")).data,
+  });
+  const tlConnected = tlStatus?.find((p) => p.platform === "teamleader")?.connected;
+
+  const { data: registered, refetch: refetchWebhooks } = useQuery<RegisteredWebhook[]>({
+    queryKey: ["tl", "webhooks"],
+    queryFn: async () => (await api.get("/integrations/teamleader/webhooks")).data,
+    enabled: !!tlConnected,
+  });
+
+  const { data: events, refetch: refetchEvents } = useQuery<WebhookEvent[]>({
+    queryKey: ["tl", "webhook-events"],
+    queryFn: async () => (await api.get("/integrations/teamleader/webhook-events?limit=25")).data,
+    refetchInterval: 5000,
+  });
+
+  const expectedUrl = `https://dashboard.recotex.be/api/webhooks/teamleader`;
+  const expectedTypes = [
+    "meeting.created", "meeting.updated", "meeting.deleted",
+    "deal.created", "deal.updated", "deal.won", "deal.lost", "deal.deleted",
+  ];
+  const isRegistered = !!registered?.some((w) => w.url === expectedUrl);
+
+  const registerMutation = useMutation({
+    mutationFn: async () => (await api.post("/integrations/teamleader/webhooks/register", { url: expectedUrl, types: expectedTypes })).data,
+    onSuccess: () => { setActionMsg("Webhook geregistreerd bij Teamleader"); setActionErr(null); refetchWebhooks(); },
+    onError: (e: any) => { setActionErr(e?.response?.data?.error || "Registratie mislukt"); setActionMsg(null); },
+  });
+
+  const unregisterMutation = useMutation({
+    mutationFn: async () => (await api.post("/integrations/teamleader/webhooks/unregister", { url: expectedUrl, types: expectedTypes })).data,
+    onSuccess: () => { setActionMsg("Webhook uitgeschreven"); setActionErr(null); refetchWebhooks(); },
+    onError: (e: any) => { setActionErr(e?.response?.data?.error || "Uitschrijven mislukt"); setActionMsg(null); },
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => (await api.post("/integrations/teamleader/backfill/meetings", { days: backfillDays })).data,
+    onSuccess: () => { setActionMsg(`Backfill van laatste ${backfillDays} dagen gestart op de achtergrond`); setActionErr(null); refetchEvents(); },
+    onError: (e: any) => { setActionErr(e?.response?.data?.error || "Backfill mislukt"); setActionMsg(null); },
+  });
+
+  const eventStats = {
+    total: events?.length || 0,
+    processed: events?.filter((e) => e.processedAt && !e.error).length || 0,
+    errors: events?.filter((e) => e.error).length || 0,
+    pending: events?.filter((e) => !e.processedAt).length || 0,
+  };
+
+  return (
+    <div className="space-y-6">
+      {!tlConnected && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Teamleader is niet verbonden</p>
+              <p className="text-xs text-amber-800 mt-0.5">Verbind eerst Teamleader op het Integraties tab voordat je webhooks kan beheren.</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {(actionMsg || actionErr) && (
+        <Card className={actionErr ? "border-destructive/30 bg-destructive/5" : "border-success/30 bg-success/5"}>
+          <CardContent className="p-3 flex items-center justify-between">
+            <p className={`text-sm ${actionErr ? "text-destructive" : "text-success"}`}>{actionErr || actionMsg}</p>
+            <button onClick={() => { setActionMsg(null); setActionErr(null); }} className="text-xs text-muted-foreground hover:text-foreground">Sluiten</button>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground flex items-start gap-2">
+        <Users className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 mt-0.5" />
+        <p>
+          Verkopers loggen niet in op het dashboard. Beheer de verkopers-roster en hun Teamleader-koppeling onder{" "}
+          <button onClick={() => onSwitchTab("kpi")} className="font-semibold text-primary hover:underline">KPI Targets</button>.
+        </p>
+      </div>
+
+      {/* Webhook registration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            <Webhook className="h-4 w-4 text-primary" />
+            Teamleader webhook URL
+            <InfoTooltip text="Teamleader stuurt push-meldingen naar deze URL voor meeting.created, meeting.updated en meeting.deleted events. Idempotency is gegarandeerd via SHA-256 hash van de body — dezelfde webhook kan nooit dubbel verwerkt worden." />
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Webhook URL</label>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs font-mono text-foreground break-all">{expectedUrl}</code>
+              <button
+                onClick={() => navigator.clipboard.writeText(expectedUrl)}
+                className="rounded-lg border border-border/60 bg-white p-2 hover:bg-muted/30 transition-colors"
+                title="Kopieer URL"
+              >
+                <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Event types</label>
+            <div className="flex flex-wrap gap-1.5">
+              {expectedTypes.map((t) => (
+                <span key={t} className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">{t}</span>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              {isRegistered ? <CheckCircle className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-muted-foreground" />}
+              <span className="text-sm font-medium">{isRegistered ? "Geregistreerd bij Teamleader" : "Niet geregistreerd"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {isRegistered ? (
+                <Button size="sm" variant="outline" onClick={() => unregisterMutation.mutate()} disabled={unregisterMutation.isPending || !tlConnected}>
+                  <Unlink className="mr-1.5 h-3.5 w-3.5" />
+                  Uitschrijven
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => registerMutation.mutate()} disabled={registerMutation.isPending || !tlConnected}>
+                  <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                  Registreren
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {registered && registered.length > 0 && (
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Alle geregistreerde URLs</label>
+              <div className="space-y-1">
+                {registered.map((w, i) => (
+                  <div key={i} className="rounded-md border border-border/40 bg-muted/10 px-2.5 py-1.5">
+                    <code className="text-[11px] font-mono text-foreground break-all">{w.url}</code>
+                    <div className="mt-0.5 flex flex-wrap gap-1">
+                      {w.types.map((t) => <span key={t} className="text-[10px] text-muted-foreground">{t}</span>).reduce((acc: any, el, i) => i === 0 ? [el] : [...acc, ", ", el], [])}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Backfill */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            <Zap className="h-4 w-4 text-primary" />
+            Reconciliation backfill
+            <InfoTooltip text="Pull all meetings from the last N days from Teamleader and run them through the same upsert path as webhooks. Use dit als je vermoedt dat events gemist zijn (server downtime, te late webhook registratie, ...). Dedup is gegarandeerd — dubbele rijen kunnen niet ontstaan." />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Aantal dagen terug</label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={backfillDays}
+                onChange={(e) => setBackfillDays(Math.max(1, Math.min(365, parseInt(e.target.value) || 30)))}
+                className="h-9 w-24 text-sm"
+              />
+            </div>
+            <Button onClick={() => backfillMutation.mutate()} disabled={backfillMutation.isPending || !tlConnected}>
+              {backfillMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+              Start backfill
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent events */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-1.5">
+              <Clock className="h-4 w-4 text-primary" />
+              Laatste webhook events
+              <InfoTooltip text="De 25 meest recente events ontvangen van Teamleader. Updates elke 5 seconden." />
+            </CardTitle>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-muted-foreground">{eventStats.total} totaal</span>
+              <span className="text-success">· {eventStats.processed} verwerkt</span>
+              {eventStats.errors > 0 && <span className="text-destructive">· {eventStats.errors} errors</span>}
+              {eventStats.pending > 0 && <span className="text-amber-600">· {eventStats.pending} pending</span>}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!events || events.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Nog geen webhook events ontvangen</p>
+          ) : (
+            <>
+              {/* Error grouping summary — actionable at-a-glance */}
+              {(() => {
+                const errorGroups = new Map<string, number>();
+                for (const e of events) {
+                  if (!e.error) continue;
+                  // Strip UUIDs from the error so similar errors group together
+                  const key = e.error.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<uuid>");
+                  errorGroups.set(key, (errorGroups.get(key) || 0) + 1);
+                }
+                if (errorGroups.size === 0) return null;
+                return (
+                  <div className="mb-4 space-y-1.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Error groepen</p>
+                    {Array.from(errorGroups.entries()).sort((a, b) => b[1] - a[1]).map(([msg, count]) => (
+                      <div key={msg} className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+                        <span className="mt-0.5 inline-flex h-5 min-w-[28px] items-center justify-center rounded-full bg-destructive/15 px-1.5 text-[10px] font-bold tabular-nums text-destructive">{count}×</span>
+                        <code className="text-[11px] font-mono text-destructive break-all leading-relaxed">{msg}</code>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60">
+                      <th className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tijd</th>
+                      <th className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Event</th>
+                      <th className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Entity</th>
+                      <th className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status / Reden</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {events.map((e) => (
+                      <tr key={e.id} className="border-b border-border/30 align-top">
+                        <td className="py-2 text-xs text-muted-foreground tabular-nums whitespace-nowrap">{new Date(e.receivedAt).toLocaleString("nl-BE")}</td>
+                        <td className="py-2"><code className="text-xs font-mono">{e.eventType}</code></td>
+                        <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{e.entityType ? `${e.entityType}:${(e.entityId || "").slice(0, 8)}` : "—"}</td>
+                        <td className="py-2">
+                          {e.error ? (
+                            <div className="flex items-start gap-2">
+                              <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
+                                <XCircle className="h-3 w-3" />
+                                Error
+                              </span>
+                              <code className="text-[11px] font-mono text-destructive/90 break-all leading-snug">{e.error}</code>
+                            </div>
+                          ) : e.processedAt ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
+                              <CheckCircle className="h-3 w-3" />
+                              Verwerkt
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              <Clock className="h-3 w-3" />
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+

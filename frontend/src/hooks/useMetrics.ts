@@ -30,6 +30,24 @@ export function useChannelMetrics() {
   });
 }
 
+export interface CostSummary {
+  total: number;
+  leadSpendTotal: number;
+  algemeenTotal: number;
+  hasEstimatedCosts: boolean;
+  estimatedCount: number;
+  byChannel: Array<{ channel: string; amount: number }>;
+  byType: Array<{ type: string; amount: number }>;
+}
+
+export function useCostSummary() {
+  const { params, key } = useFilters();
+  return useQuery<CostSummary>({
+    queryKey: ["costs", "summary", ...key],
+    queryFn: async () => (await api.get("/costs/summary", { params })).data,
+  });
+}
+
 export function useCostVsRevenue() {
   const { params, key } = useFilters();
   return useQuery({

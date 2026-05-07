@@ -11,6 +11,7 @@ interface FunnelStage {
 
 interface Props {
   stages: FunnelStage[];
+  onStageClick?: (index: number, stage: FunnelStage) => void;
 }
 
 const TOP_WIDTH = 320;
@@ -20,7 +21,7 @@ const SIDE_PAD = 110; // breathing room for outside labels
 const TOP_PAD = 22;
 const BOTTOM_PAD = 20;
 
-export function SalesFunnelCone({ stages }: Props) {
+export function SalesFunnelCone({ stages, onStageClick }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(stages[0]?.value || 1, 1);
 
@@ -95,7 +96,8 @@ export function SalesFunnelCone({ stages }: Props) {
               transform={`translate(0, ${lift})`}
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover(null)}
-              style={{ cursor: "pointer", transition: "transform 200ms cubic-bezier(.4,0,.2,1)" }}
+              onClick={onStageClick ? () => onStageClick(i, s) : undefined}
+              style={{ cursor: onStageClick ? "pointer" : "default", transition: "transform 200ms cubic-bezier(.4,0,.2,1)" }}
             >
               {/* Body */}
               <path d={path} fill={`url(#grad-${i})`} filter="url(#funnel-shadow)" />

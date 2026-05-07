@@ -26,9 +26,12 @@ async function seed() {
 seed();
 " || echo "Admin seed skipped"
 
-echo "Seeding budget forecast..."
+echo "Seeding budget forecast (legacy fallback for fresh DBs)..."
 cd /app
 npx tsx backend/src/scripts/seedBudgetForecast.ts || echo "Budget seed skipped"
+
+echo "Importing 2026 marketing budget plan (idempotent — skips if already imported)..."
+npx tsx backend/src/scripts/importBudgetMarketing2026.ts || echo "Budget 2026 import skipped"
 
 echo "Starting Nginx..."
 nginx

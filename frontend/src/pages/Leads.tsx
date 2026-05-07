@@ -1,112 +1,132 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFilterStore } from "@/store/filterStore";
 import api from "@/lib/api";
-import type { Deal } from "@/types";
-import { formatCurrency } from "@/lib/utils";
-import { exportCSV } from "@/lib/export";
-import { Download } from "lucide-react";
-
-const STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "destructive" | "outline"> = {
-  NEW: "default",
-  QUALIFIED: "warning",
-  APPOINTMENT: "outline",
-  WON: "success",
-  LOST: "destructive",
-};
+import { formatNumber } from "@/lib/utils";
+import { Users, Sparkles } from "lucide-react";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { DealsDrillModal, type DrillFilter } from "@/components/dashboard/DealsDrillModal";
+import { DrillableNumber } from "@/components/dashboard/DrillableNumber";
 
 export function LeadsPage() {
   const { dateFrom, dateTo, dateMode, channels, statuses, typeWerken, verantwoordelijken } = useFilterStore();
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const [drill, setDrill] = useState<DrillFilter | null>(null);
 
-  const params: Record<string, any> = { dateFrom, dateTo, dateMode, search, page, limit: 25 };
+  const params: Record<string, any> = { dateFrom, dateTo, dateMode };
   if (channels.length) params.herkomst = channels.join(",");
   if (statuses.length) params.status = statuses.join(",");
   if (typeWerken.length) params.typeWerken = typeWerken.join(",");
   if (verantwoordelijken.length) params.verantwoordelijke = verantwoordelijken.join(",");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["deals", dateFrom, dateTo, channels.join(","), statuses.join(","), typeWerken.join(","), verantwoordelijken.join(","), search, page],
-    queryFn: async () => {
-      const res = await api.get("/deals", { params });
-      return res.data as { deals: Deal[]; total: number };
+  const { data: stats } = useQuery({
+    queryKey: ["deal-stats", dateFrom, dateTo, channels, statuses, typeWerken, verantwoordelijken],
+    queryFn: async () => (await api.get("/deals/stats", { params })).data as {
+      total: number; uniqueContacts: number; won: number; winRate: string;
+      byStatus: { status: string; count: number }[];
+      byHerkomst: { herkomst: string; count: number; revenue: number }[];
     },
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-foreground">Leads</h2>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => {
-            if (!data?.deals) return;
-            exportCSV("leads", ["Naam", "Email", "Herkomst", "Status", "Type Werken", "Omzet", "Datum"],
-              data.deals.map((d) => [d.contact?.name || d.title || "", d.contact?.email || "", d.herkomst || "", d.status, d.typeWerken || "", d.revenue || 0, d.dealCreatedAt?.slice(0, 10) || ""])
-            );
-          }}><Download className="mr-1.5 h-3.5 w-3.5" />CSV</Button>
-          <Input
-            placeholder="Zoeken op naam, email..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="w-72 rounded-lg"
-          />
-        </div>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Leads</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Alle binnengekomen leads · klik op een waarde voor de volledige lijst</p>
       </div>
 
-      <Card>
-        <CardContent>
-          {isLoading ? (
-            <p className="text-muted-foreground">Laden...</p>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-muted-foreground">
-                      <th className="pb-3 font-medium">Naam</th>
-                      <th className="pb-3 font-medium">Email</th>
-                      <th className="pb-3 font-medium">Herkomst</th>
-                      <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Type Werken</th>
-                      <th className="pb-3 font-medium text-right">Omzet</th>
-                      <th className="pb-3 font-medium">Datum</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data?.deals.map((deal) => (
-                      <tr key={deal.id} className="border-b border-border/50 transition-colors hover:bg-accent/50">
-                        <td className="py-3 font-medium text-foreground">{deal.contact?.name || deal.title || "-"}</td>
-                        <td className="py-3 text-muted-foreground">{deal.contact?.email || "-"}</td>
-                        <td className="py-3">{deal.herkomst || "-"}</td>
-                        <td className="py-3">
-                          <Badge variant={STATUS_VARIANT[deal.status] || "default"}>{deal.status}</Badge>
-                        </td>
-                        <td className="py-3 text-muted-foreground">{deal.typeWerken || "-"}</td>
-                        <td className="py-3 text-right">{deal.revenue ? formatCurrency(deal.revenue) : "-"}</td>
-                        <td className="py-3 text-muted-foreground">
-                          {deal.dealCreatedAt ? new Date(deal.dealCreatedAt).toLocaleDateString("nl-BE") : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">{data?.total || 0} deals totaal</span>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Vorige</Button>
-                  <Button variant="outline" size="sm" disabled={(data?.deals.length || 0) < 25} onClick={() => setPage(page + 1)}>Volgende</Button>
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+        <KpiCard title="Totaal Leads" value={formatNumber(stats?.total || 0)} icon={<Users className="h-4 w-4" />} onClick={() => setDrill({ title: "Alle leads" })} formula={{ label: "Totaal Leads", description: "Alle deals binnen de huidige filters" }} />
+        <KpiCard title="Unieke Contacten" value={formatNumber(stats?.uniqueContacts || 0)} icon={<Users className="h-4 w-4" />} formula={{ label: "Unieke Contacten", description: "Aantal verschillende personen achter de leads" }} />
+        <KpiCard title="Won" value={formatNumber(stats?.won || 0)} icon={<Sparkles className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Won deals" })} formula={{ label: "Won deals", description: "Aantal leads dat resulteerde in een verkoop" }} />
+        <KpiCard title="Win Rate" value={`${stats?.winRate || 0}%`} icon={<Sparkles className="h-4 w-4" />} formula={{ label: "Win Percentage", description: "Percentage leads gewonnen", formula: "(Won deals ÷ Totaal leads) × 100%" }} />
+      </div>
+
+      {/* Status breakdown */}
+      {stats?.byStatus && stats.byStatus.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Per Status
+              <InfoTooltip text="Klik op een aantal om de leads in die status te bekijken." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+              {stats.byStatus.map((s) => (
+                <div key={s.status} className="rounded-xl border border-border/40 bg-muted/20 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <InfoTooltip code={s.status}>{s.status}</InfoTooltip>
+                  </div>
+                  <div className="mt-1 text-2xl font-bold tabular-nums">
+                    <DrillableNumber filter={{ status: s.status, title: `${s.status} leads` }}>
+                      {formatNumber(s.count)}
+                    </DrillableNumber>
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Per kanaal */}
+      {stats?.byHerkomst && stats.byHerkomst.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Per Kanaal
+              <InfoTooltip text="Klik op het aantal voor de leads van dat kanaal." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-border/60">
+                    <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Kanaal">Kanaal</InfoTooltip></th>
+                    <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Lead">Leads</InfoTooltip></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byHerkomst.sort((a, b) => b.count - a.count).map((h) => (
+                    <tr key={h.herkomst} className="border-b border-border/30 hover:bg-muted/50">
+                      <td className="py-3 font-medium">{h.herkomst}</td>
+                      <td className="py-3 text-right tabular-nums">
+                        <DrillableNumber filter={{ herkomst: h.herkomst, title: `Leads — ${h.herkomst}`, inheritGlobal: false }}>
+                          {h.count}
+                        </DrillableNumber>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Volledige Leads Lijst
+            <InfoTooltip text="Open de volledige lijst met zoeken, sorteren, kolomfilters en CSV-export." />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <button
+            onClick={() => setDrill({ title: "Alle leads" })}
+            className="w-full rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 px-6 py-8 text-center transition-colors hover:border-primary/60 hover:bg-primary/10"
+          >
+            <Users className="mx-auto h-8 w-8 text-primary" />
+            <div className="mt-2 text-sm font-semibold text-foreground">Open de Leads lijst</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">Met zoeken, sorteren, kolomfilters en CSV-export</div>
+          </button>
         </CardContent>
       </Card>
+
+      {drill && <DealsDrillModal filter={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

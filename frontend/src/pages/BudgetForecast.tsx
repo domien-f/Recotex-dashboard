@@ -12,6 +12,7 @@ import { TrendingUp, CheckCircle, AlertTriangle, XCircle, Plus, Save, Trash2, Wa
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 
 interface BudgetForecast {
   id: string;
@@ -211,18 +212,23 @@ function AnalyticsView() {
 
       {/* Per-channel breakdown table */}
       <Card>
-        <CardHeader><CardTitle>Budget per Kanaal</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Budget per Kanaal
+            <InfoTooltip text="Voor elk kanaal: het gebudgetteerde bedrag versus de werkelijke uitgaven, met afwijking en verbruik in %." />
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Budget</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Werkelijk</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verschil</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">%</th>
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verbruik</th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Kanaal">Kanaal</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Het vooropgezette budget voor dit kanaal in deze periode">Budget</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Werkelijk gefactureerde of geboekte kost in deze periode">Werkelijk</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Werkelijk minus Budget — positief = over budget, negatief = onder budget">Verschil</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Procentueel verschil ten opzichte van het budget">%</InfoTooltip></th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Hoe veel % van het budget al is gebruikt">Verbruik</InfoTooltip></th>
                 </tr>
               </thead>
               <tbody>

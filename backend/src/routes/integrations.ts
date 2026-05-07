@@ -7,7 +7,15 @@ import {
   exchangeCodeForTokens,
   isConfigured as tlConfigured,
   syncAll as syncTeamleader,
+  listAllUsers as tlListUsers,
+  listWebhooks as tlListWebhooks,
+  registerWebhook as tlRegisterWebhook,
+  unregisterWebhook as tlUnregisterWebhook,
+  listMeetings as tlListMeetings,
+  fullName as tlFullName,
 } from "../services/teamleader.js";
+import { processWebhook } from "../services/teamleaderWebhook.js";
+import { createHash } from "node:crypto";
 import {
   getAuthUrl as metaAuthUrl,
   exchangeCodeForToken as metaExchangeCode,
@@ -239,6 +247,187 @@ router.get("/teamleader/connect", requireRole("ADMIN"), (_req: AuthRequest, res:
 router.delete("/teamleader", requireRole("ADMIN"), async (_req: AuthRequest, res: Response) => {
   await prisma.integrationCredential.deleteMany({ where: { platform: "teamleader" } });
   res.json({ message: "Teamleader disconnected" });
+});
+
+// ─── Teamleader: webhook + user management for Phase C ──────────────────────
+
+// List Teamleader users — for verkoper-to-TL-user mapping in Settings.
+router.get("/teamleader/users", requireRole("ADMIN", "MANAGER"), async (_req: AuthRequest, res: Response) => {
+  const cred = await prisma.integrationCredential.findUnique({ where: { platform: "teamleader" } });
+  if (!cred) { res.status(400).json({ error: "Teamleader not connected" }); return; }
+  try {
+    const users = await tlListUsers(prisma);
+    res.json(users.map((u) => ({ id: u.id, name: tlFullName(u), email: u.email })));
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+// List webhooks currently registered with Teamleader.
+router.get("/teamleader/webhooks", requireRole("ADMIN"), async (_req: AuthRequest, res: Response) => {
+  const cred = await prisma.integrationCredential.findUnique({ where: { platform: "teamleader" } });
+  if (!cred) { res.status(400).json({ error: "Teamleader not connected" }); return; }
+  try {
+    const list = await tlListWebhooks(prisma);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+// Register the dashboard's webhook URL with Teamleader.
+// Teamleader registers one (url, type) tuple per call — loop so partial
+// failures don't block the rest, and so the API can ack each one separately.
+router.post("/teamleader/webhooks/register", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
+  const cred = await prisma.integrationCredential.findUnique({ where: { platform: "teamleader" } });
+  if (!cred) { res.status(400).json({ error: "Teamleader not connected" }); return; }
+
+  const url = (req.body?.url as string) || `${process.env.PUBLIC_BASE_URL || "https://dashboard.recotex.be"}/api/webhooks/teamleader`;
+  const types = (req.body?.types as string[]) || [
+    "meeting.created", "meeting.updated", "meeting.deleted",
+    "deal.created", "deal.updated", "deal.won", "deal.lost", "deal.deleted",
+  ];
+
+  const results: Array<{ type: string; ok: boolean; error?: string }> = [];
+  for (const t of types) {
+    try {
+      await tlRegisterWebhook(prisma, url, [t]);
+      results.push({ type: t, ok: true });
+    } catch (e: any) {
+      results.push({ type: t, ok: false, error: e?.message || String(e) });
+    }
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  if (failed.length === types.length) {
+    res.status(500).json({ url, types, results, error: "All registrations failed" });
+    return;
+  }
+  res.json({
+    url,
+    types,
+    results,
+    registered: results.filter((r) => r.ok).length,
+    failed: failed.length,
+    message: failed.length === 0
+      ? `${results.length} webhook events geregistreerd`
+      : `${results.length - failed.length}/${results.length} geregistreerd, ${failed.length} mislukt`,
+  });
+});
+
+router.post("/teamleader/webhooks/unregister", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
+  const cred = await prisma.integrationCredential.findUnique({ where: { platform: "teamleader" } });
+  if (!cred) { res.status(400).json({ error: "Teamleader not connected" }); return; }
+
+  const url = req.body?.url as string;
+  const types = (req.body?.types as string[]) || [
+    "meeting.created", "meeting.updated", "meeting.deleted",
+    "deal.created", "deal.updated", "deal.won", "deal.lost", "deal.deleted",
+  ];
+  if (!url) { res.status(400).json({ error: "url required" }); return; }
+
+  const results: Array<{ type: string; ok: boolean; error?: string }> = [];
+  for (const t of types) {
+    try {
+      await tlUnregisterWebhook(prisma, url, [t]);
+      results.push({ type: t, ok: true });
+    } catch (e: any) {
+      results.push({ type: t, ok: false, error: e?.message || String(e) });
+    }
+  }
+
+  res.json({
+    url,
+    results,
+    unregistered: results.filter((r) => r.ok).length,
+    message: `${results.filter((r) => r.ok).length}/${results.length} uitgeschreven`,
+  });
+});
+
+// Backfill the last N days of meetings — runs the same upsert logic as the
+// webhook handler, so dedup is preserved (no double-logging).
+router.post("/teamleader/backfill/meetings", requireRole("ADMIN"), async (req: AuthRequest, res: Response) => {
+  const days = Math.max(1, Math.min(365, parseInt(req.body?.days || "30")));
+  const cred = await prisma.integrationCredential.findUnique({ where: { platform: "teamleader" } });
+  if (!cred) { res.status(400).json({ error: "Teamleader not connected" }); return; }
+
+  const log = await prisma.syncLog.create({ data: { source: "teamleader", status: "RUNNING" } });
+  res.json({ message: `Backfill started for last ${days} days`, syncLogId: log.id });
+
+  try {
+    const startsAfter = new Date(Date.now() - days * 86400_000).toISOString().replace(".000Z", "+00:00");
+    let page = 1;
+    let processed = 0;
+    let errors = 0;
+
+    while (true) {
+      const meetings = await tlListMeetings(prisma, { startsAfter, pageSize: 100, pageNumber: page });
+      if (meetings.length === 0) break;
+
+      for (const m of meetings) {
+        // Synthesize a Focus-format event so we go through the same handler
+        // (and the same dedup contract) as a real webhook would.
+        const synthBody = {
+          type: "meeting.updated",
+          subject: { type: "meeting", id: m.id },
+          _backfill: true,
+        };
+        const idempotencyKey = createHash("sha256")
+          .update(JSON.stringify({ id: m.id, k: "backfill" }))
+          .digest("hex");
+
+        const existing = await prisma.webhookEvent.findUnique({ where: { idempotencyKey }, select: { id: true } });
+        let webhookEventId: string;
+        if (existing) {
+          webhookEventId = existing.id;
+        } else {
+          const created = await prisma.webhookEvent.create({
+            data: {
+              source: "teamleader",
+              eventType: "backfill.meeting",
+              entityType: "meeting",
+              entityId: m.id,
+              idempotencyKey,
+              rawBody: synthBody as any,
+            },
+          });
+          webhookEventId = created.id;
+        }
+
+        try {
+          await processWebhook(prisma, webhookEventId, synthBody);
+          processed++;
+        } catch (e: any) {
+          errors++;
+          console.error(`[backfill] meeting ${m.id} failed:`, e?.message);
+        }
+      }
+      if (meetings.length < 100) break;
+      page++;
+    }
+
+    await prisma.syncLog.update({
+      where: { id: log.id },
+      data: { status: "SUCCESS", recordsSynced: processed, error: errors > 0 ? `${errors} errors` : null, completedAt: new Date() },
+    });
+  } catch (e: any) {
+    await prisma.syncLog.update({
+      where: { id: log.id },
+      data: { status: "FAILED", error: (e?.message || String(e)).slice(0, 500), completedAt: new Date() },
+    });
+  }
+});
+
+// Webhook events list (audit log)
+router.get("/teamleader/webhook-events", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res: Response) => {
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+  const events = await prisma.webhookEvent.findMany({
+    where: { source: "teamleader" },
+    orderBy: { receivedAt: "desc" },
+    take: limit,
+    select: { id: true, eventType: true, entityType: true, entityId: true, receivedAt: true, processedAt: true, error: true },
+  });
+  res.json(events);
 });
 
 // Manual sync trigger

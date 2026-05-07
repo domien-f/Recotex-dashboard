@@ -61,7 +61,7 @@ async function getToken(prisma: PrismaClient): Promise<string> {
   return cred.accessToken;
 }
 
-async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): Promise<any> {
+export async function tlFetch(prisma: PrismaClient, endpoint: string, body: any = {}): Promise<any> {
   let token = await getToken(prisma);
   for (let attempt = 0; attempt < 10; attempt++) {
     const res = await fetch(`${TL_API}/${endpoint}`, {
@@ -246,11 +246,23 @@ export async function syncAll(prisma: PrismaClient) {
         dealCreatedAt: new Date(d.created_at),
       };
 
-      const existing = await prisma.deal.findUnique({ where: { teamleaderId: deal.id } });
+      // Compute the cross-source key — must match dealExternalRef in teamleaderWebhook
+      const { dealExternalRef } = await import("./teamleaderWebhook.js");
+      const externalRef = dealExternalRef(d.title || name, contactEmail, dealData.dealCreatedAt);
+
+      // Lookup chain: teamleaderId → externalRef → insert
+      let existing = await prisma.deal.findUnique({ where: { teamleaderId: deal.id }, select: { id: true, source: true } });
+      if (!existing) {
+        existing = await prisma.deal.findUnique({ where: { externalRef }, select: { id: true, source: true } });
+      }
       if (existing) {
-        await prisma.deal.update({ where: { teamleaderId: deal.id }, data: dealData });
+        if (existing.source === "manual") {
+          await prisma.deal.update({ where: { id: existing.id }, data: { teamleaderId: deal.id, externalRef, lastSyncedAt: new Date() } });
+        } else {
+          await prisma.deal.update({ where: { id: existing.id }, data: { ...dealData, teamleaderId: deal.id, externalRef, source: "webhook", lastSyncedAt: new Date() } });
+        }
       } else {
-        await prisma.deal.create({ data: { ...dealData, teamleaderId: deal.id } });
+        await prisma.deal.create({ data: { ...dealData, teamleaderId: deal.id, externalRef, source: "webhook", lastSyncedAt: new Date() } });
       }
 
       synced++;
@@ -297,11 +309,20 @@ export async function syncAll(prisma: PrismaClient) {
       if (!deal) continue;
 
       try {
-        await prisma.appointment.upsert({
+        // Respect manual overrides (hands-off rule from the dedup contract)
+        const existing = await prisma.appointment.findUnique({
           where: { teamleaderId: event.id },
-          create: { teamleaderId: event.id, dealId: deal.id, date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
-          update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title },
+          select: { id: true, source: true },
         });
+        if (existing?.source === "manual") {
+          await prisma.appointment.update({ where: { id: existing.id }, data: { lastSyncedAt: new Date() } });
+        } else {
+          await prisma.appointment.upsert({
+            where: { teamleaderId: event.id },
+            create: { teamleaderId: event.id, dealId: deal.id, date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title, source: "webhook", lastSyncedAt: new Date() },
+            update: { date: new Date(event.starts_at), scheduledAt: deal.dealCreatedAt, channel: deal.herkomst, notes: event.title, source: "webhook", lastSyncedAt: new Date() },
+          });
+        }
         eventsSynced++;
       } catch (e: any) {
         console.warn(`[TL] Failed to upsert appointment ${event.id}: ${e.message}`);
@@ -316,4 +337,114 @@ export async function syncAll(prisma: PrismaClient) {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[TL] ✓ Sync complete in ${elapsed}s: ${synced} deals, ${eventsSynced} events, ${errors} errors`);
   return { synced, events: eventsSynced, errors };
+}
+
+// ─── Webhook-side API helpers ───────────────────────────────────────────────
+// These are used by the webhook handler to enrich incoming events.
+
+export interface TeamleaderMeeting {
+  id: string;
+  title?: string;
+  subject?: string;
+  starts_at?: string;
+  scheduled_at?: string;
+  ends_at?: string;
+  status?: string;
+  location?: { type?: string; address?: any } | null;
+  responsible_user?: { type: string; id: string };
+  creator?: { type: string; id: string };
+  created_by?: { type: string; id: string };
+  customer?: { type: string; id: string } | null;
+  attendees?: Array<{ type: string; id: string }>;
+  links?: Array<{ type: string; id: string }>;
+  duration?: { unit?: string; value?: number } | null;
+  description?: string;
+  raw?: unknown;
+}
+
+export interface TeamleaderUser {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+}
+
+export async function getMeeting(prisma: PrismaClient, uuid: string): Promise<TeamleaderMeeting> {
+  const json = await tlFetch(prisma, "meetings.info", { id: uuid });
+  return { ...json.data, raw: json.data };
+}
+
+export async function listMeetings(
+  prisma: PrismaClient,
+  opts: { startsAfter?: string; pageSize?: number; pageNumber?: number } = {}
+): Promise<TeamleaderMeeting[]> {
+  const { startsAfter, pageSize = 100, pageNumber = 1 } = opts;
+  const filter: any = {};
+  if (startsAfter) filter.starts_after = startsAfter;
+  const json = await tlFetch(prisma, "meetings.list", {
+    filter,
+    page: { size: pageSize, number: pageNumber },
+    sort: [{ field: "scheduled_at", order: "desc" }],
+  });
+  return (json.data || []) as TeamleaderMeeting[];
+}
+
+export async function listAllUsers(prisma: PrismaClient): Promise<TeamleaderUser[]> {
+  const all: TeamleaderUser[] = [];
+  let page = 1;
+  while (true) {
+    const json = await tlFetch(prisma, "users.list", { page: { size: 100, number: page } });
+    const data = (json.data || []) as TeamleaderUser[];
+    all.push(...data);
+    if (data.length < 100) break;
+    page++;
+    await sleep(300);
+  }
+  return all;
+}
+
+export async function getUser(prisma: PrismaClient, id: string): Promise<TeamleaderUser> {
+  const json = await tlFetch(prisma, "users.info", { id });
+  return json.data as TeamleaderUser;
+}
+
+export function fullName(u: TeamleaderUser | undefined | null): string | null {
+  if (!u) return null;
+  return [u.first_name, u.last_name].filter(Boolean).join(" ") || u.email || u.id;
+}
+
+// ─── Webhook registration ──────────────────────────────────────────────────
+
+export async function registerWebhook(
+  prisma: PrismaClient,
+  url: string,
+  types: string[]
+): Promise<void> {
+  await tlFetch(prisma, "webhooks.register", { url, types });
+}
+
+export async function unregisterWebhook(
+  prisma: PrismaClient,
+  url: string,
+  types: string[]
+): Promise<void> {
+  await tlFetch(prisma, "webhooks.unregister", { url, types });
+}
+
+export async function listWebhooks(prisma: PrismaClient): Promise<Array<{ url: string; types: string[] }>> {
+  const json = await tlFetch(prisma, "webhooks.list", {});
+  return (json.data || []) as Array<{ url: string; types: string[] }>;
+}
+
+// ─── Legacy ID migration (Classic-style webhooks send numeric ids) ─────────
+
+export async function migrateLegacyId(
+  prisma: PrismaClient,
+  type: string,
+  legacyId: string | number
+): Promise<string> {
+  const json = await tlFetch(prisma, "migrate.id", { type, id: String(legacyId) });
+  const uuid = json.data?.id;
+  if (!uuid) throw new Error(`migrate.id returned no uuid for ${type} ${legacyId}`);
+  return uuid;
 }

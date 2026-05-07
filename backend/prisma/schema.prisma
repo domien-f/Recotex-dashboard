@@ -61,13 +61,14 @@ enum SyncStatus {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  name         String
-  role         Role      @default(VIEWER)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  name             String
+  role             Role      @default(VIEWER)
+  teamleaderUserId String?   @unique @map("teamleader_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   sessions     Session[]
   invoices     Invoice[]  @relation("UploadedBy")
@@ -90,19 +91,24 @@ model Session {
 }
 
 model Contact {
-  id        String   @id @default(cuid())
-  email     String?  @unique
-  phone     String?
-  name      String?
-  street    String?
-  postcode  String?
-  city      String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(cuid())
+  email        String?  @unique
+  phone        String?
+  name         String?
+  street       String?
+  postcode     String?
+  city         String?
+  teamleaderId String?  @unique @map("teamleader_id")
+  externalRef  String?  @unique @map("external_ref")
+  source       String   @default("excel")
+  lastSyncedAt DateTime? @map("last_synced_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   deals Deal[]
 
   @@index([email])
+  @@index([source])
   @@map("contacts")
 }
 
@@ -121,6 +127,9 @@ model Deal {
   wonAt             DateTime?  @map("won_at")
   dealCreatedAt     DateTime?  @map("deal_created_at")
   teamleaderId      String?    @unique @map("teamleader_id")
+  externalRef       String?    @unique @map("external_ref")
+  source            String     @default("excel")
+  lastSyncedAt      DateTime?  @map("last_synced_at")
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
 
@@ -131,28 +140,83 @@ model Deal {
   @@index([status])
   @@index([dealCreatedAt])
   @@index([contactId])
+  @@index([source])
   @@map("deals")
 }
 
 model Appointment {
-  id           String             @id @default(cuid())
-  dealId       String             @map("deal_id")
-  date         DateTime                                          // wanneer de afspraak doorgaat (starts_at)
-  scheduledAt  DateTime?          @map("scheduled_at")           // wanneer de afspraak gepland werd
-  cost         Decimal?           @db.Decimal(12, 2)
-  outcome      AppointmentOutcome @default(PENDING)
-  channel      String?
-  notes        String?
-  teamleaderId String?            @unique @map("teamleader_id")
-  createdAt    DateTime           @default(now()) @map("created_at")
-  updatedAt    DateTime           @updatedAt @map("updated_at")
+  id                  String             @id @default(cuid())
+  dealId              String             @map("deal_id")
+  date                DateTime                                          // wanneer de afspraak doorgaat (starts_at)
+  scheduledAt         DateTime?          @map("scheduled_at")           // wanneer de afspraak gepland werd
+  cost                Decimal?           @db.Decimal(12, 2)
+  outcome             AppointmentOutcome @default(PENDING)
+  channel             String?
+  notes               String?
+  teamleaderId        String?            @unique @map("teamleader_id")
+  externalRef         String?            @unique @map("external_ref")
+  responsibleUserId   String?            @map("responsible_user_id")    // Teamleader user UUID
+  responsibleUserName String?            @map("responsible_user_name")
+  cancelledAt         DateTime?          @map("cancelled_at")
+  completedAt         DateTime?          @map("completed_at")
+  source              String             @default("excel")               // excel | webhook | manual
+  lastSyncedAt        DateTime?          @map("last_synced_at")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
 
   deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
 
   @@index([channel])
   @@index([outcome])
   @@index([date])
+  @@index([scheduledAt])
+  @@index([responsibleUserId])
+  @@index([source])
   @@map("appointments")
+}
+
+model AppointmentTarget {
+  id                String    @id @default(cuid())
+  verantwoordelijke String                                      // matches Deal.verantwoordelijke
+  teamleaderUserId  String?   @map("teamleader_user_id")
+  weeklyTarget      Int       @map("weekly_target")
+  effectiveFrom     DateTime  @default(now()) @map("effective_from")
+  effectiveUntil    DateTime? @map("effective_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([verantwoordelijke, effectiveFrom], name: "verkoper_period")
+  @@index([verantwoordelijke])
+  @@map("appointment_targets")
+}
+
+model TeamleaderToken {
+  id           Int      @id @default(1)
+  accessToken  String   @map("access_token")
+  refreshToken String   @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("teamleader_tokens")
+}
+
+model WebhookEvent {
+  id             String    @id @default(cuid())
+  source         String                                         // teamleader | meta | google | …
+  eventType      String    @map("event_type")
+  entityType     String?   @map("entity_type")
+  entityId       String?   @map("entity_id")
+  idempotencyKey String    @unique @map("idempotency_key")      // sha256 of raw body
+  rawBody        Json      @map("raw_body")
+  receivedAt     DateTime  @default(now()) @map("received_at")
+  processedAt    DateTime? @map("processed_at")
+  error          String?
+
+  @@index([receivedAt])
+  @@index([entityType, entityId])
+  @@index([source, eventType])
+  @@map("webhook_events")
 }
 
 model Cost {
@@ -161,6 +225,8 @@ model Cost {
   amount             Decimal  @db.Decimal(12, 2)
   date               DateTime
   type               CostType
+  category           String   @default("lead_spend")  // lead_spend | algemeen — drives ROI/CPL inclusion
+  subcategory        String?                          // free-form, e.g. "Marketing team", "AA_Gent", "Adobe/Canva"
   description        String?
   invoiceId          String?  @map("invoice_id")
   isEstimated        Boolean  @default(false) @map("is_estimated")
@@ -176,6 +242,7 @@ model Cost {
   @@index([type])
   @@index([isEstimated])
   @@index([source])
+  @@index([category])
   @@map("costs")
 }
 

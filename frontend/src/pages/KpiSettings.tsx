@@ -1,11 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useMetricsOverview, useChannelMetrics } from "@/hooks/useMetrics";
 import { useFilterStore } from "@/store/filterStore";
+import { useAuthStore } from "@/store/authStore";
 import api from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { CheckCircle, AlertTriangle, XCircle } from "lucide-react";
+import { CheckCircle, AlertTriangle, XCircle, Save, CalendarCheck } from "lucide-react";
 import { MetricLabel } from "@/components/ui/metric-label";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import type { AppointmentTargetRow } from "@/types";
 
 interface KpiTarget {
   id: string;
@@ -138,9 +144,17 @@ export function KpiSettingsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">KPI Targets</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Voortgang richting eind 2026 doelstellingen</p>
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">KPI Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Voortgang richting eind 2026 doelstellingen</p>
+        </div>
+        <a
+          href="/settings?tab=kpi"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+        >
+          Targets instellen →
+        </a>
       </div>
 
       {/* KPI Cards */}
@@ -338,6 +352,229 @@ export function KpiSettingsPage() {
           </CardContent>
         </Card>
       )}
+
     </div>
+  );
+}
+
+// ─── Appointment Target Editor ─────────────────────────────────────────────
+
+interface TlUser { id: string; name: string | null; email: string | null }
+
+export function AppointmentTargetEditor() {
+  const queryClient = useQueryClient();
+  const canEdit = useAuthStore((s) => s.canEdit)();
+  // Per-verkoper drafts: { weeklyTarget?: string; teamleaderUserId?: string }
+  const [drafts, setDrafts] = useState<Record<string, { weeklyTarget?: string; teamleaderUserId?: string }>>({});
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { data: rows, isLoading } = useQuery<AppointmentTargetRow[]>({
+    queryKey: ["appointment-targets"],
+    queryFn: async () => (await api.get("/appointment-targets")).data,
+  });
+
+  // Optional: list of Teamleader users (only available when TL is connected).
+  // We tolerate a 4xx silently — the dropdown then just stays empty.
+  const { data: tlUsers } = useQuery<TlUser[]>({
+    queryKey: ["tl", "users"],
+    queryFn: async () => {
+      try {
+        return (await api.get("/integrations/teamleader/users")).data;
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Seed drafts from server data once
+  useEffect(() => {
+    if (!rows) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const r of rows) {
+        if (!next[r.verantwoordelijke]) {
+          next[r.verantwoordelijke] = {
+            weeklyTarget: r.weeklyTarget !== null ? String(r.weeklyTarget) : "",
+            teamleaderUserId: r.teamleaderUserId || "",
+          };
+        }
+      }
+      return next;
+    });
+  }, [rows]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const payload: Array<{ verantwoordelijke: string; weeklyTarget: number | null; teamleaderUserId: string | null }> = [];
+      for (const r of rows || []) {
+        const draft = drafts[r.verantwoordelijke];
+        if (!draft) continue;
+        const v = draft.weeklyTarget;
+        const draftTl = draft.teamleaderUserId || null;
+        const serverTl = r.teamleaderUserId || null;
+
+        if (v === undefined || v === "") {
+          // Field is empty — only send if the verkoper currently HAS an active
+          // target (this is an untrack action). Otherwise no-op.
+          if (r.weeklyTarget !== null) {
+            payload.push({ verantwoordelijke: r.verantwoordelijke, weeklyTarget: null, teamleaderUserId: draftTl });
+          }
+          continue;
+        }
+        const n = parseInt(v, 10);
+        if (!Number.isFinite(n) || n < 0) continue;
+
+        // Only include rows that actually changed — saves a roundtrip
+        if (n === r.weeklyTarget && draftTl === serverTl) continue;
+
+        payload.push({ verantwoordelijke: r.verantwoordelijke, weeklyTarget: n, teamleaderUserId: draftTl });
+      }
+      if (payload.length === 0) {
+        throw new Error("Geen wijzigingen om op te slaan.");
+      }
+      return (await api.put("/appointment-targets/bulk", { rows: payload })).data;
+    },
+    onSuccess: async () => {
+      // Re-fetch canonical server state, then RESYNC drafts so the form
+      // reflects exactly what's saved (no more drift between UI and DB).
+      const fresh = (await api.get("/appointment-targets")).data as AppointmentTargetRow[];
+      queryClient.setQueryData(["appointment-targets"], fresh);
+      queryClient.invalidateQueries({ queryKey: ["bezetting"] });
+      const next: Record<string, { weeklyTarget?: string; teamleaderUserId?: string }> = {};
+      for (const r of fresh) {
+        next[r.verantwoordelijke] = {
+          weeklyTarget: r.weeklyTarget !== null ? String(r.weeklyTarget) : "",
+          teamleaderUserId: r.teamleaderUserId || "",
+        };
+      }
+      setDrafts(next);
+      setSaved(true);
+      setSaveError(null);
+      setTimeout(() => setSaved(false), 3000);
+    },
+    onError: (e: any) => {
+      const msg = e?.response?.data?.error || e?.message || "Opslaan mislukt — probeer opnieuw.";
+      setSaveError(msg);
+      setSaved(false);
+    },
+  });
+
+  if (isLoading || !rows) return null;
+
+  const dirty = rows.some((r) => {
+    const draft = drafts[r.verantwoordelijke];
+    if (!draft) return false;
+    const draftN = (draft.weeklyTarget ?? "") === "" ? null : parseInt(draft.weeklyTarget!, 10);
+    const draftTl = draft.teamleaderUserId || null;
+    return draftN !== r.weeklyTarget || draftTl !== (r.teamleaderUserId || null);
+  });
+
+  // TL UUIDs already mapped — for dropdown disabled-state, prevent same TL user mapped twice
+  const usedTlIds = new Set(
+    Object.entries(drafts)
+      .map(([, d]) => d?.teamleaderUserId)
+      .filter(Boolean) as string[]
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5">
+            <CalendarCheck className="h-4 w-4 text-primary" />
+            Bouwadviseurs — weekly target & Teamleader koppeling
+            <InfoTooltip text="Alleen bouwadviseurs (= verkopers waarvoor je hier een target instelt) worden getoond op de Bezetting-pagina. Niet-tracked Excel-namen blijven onzichtbaar. Vul een target in om iemand te tracken." />
+          </CardTitle>
+          {canEdit && (
+            <div className="flex items-center gap-2">
+              {saved && <span className="text-xs font-semibold text-success">Opgeslagen ✓</span>}
+              {saveError && <span className="text-xs font-semibold text-destructive max-w-[300px] truncate" title={saveError}>{saveError}</span>}
+              <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}>
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+                {saveMutation.isPending ? "Opslaan..." : "Opslaan"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Geen verkopers gevonden — importeer eerst deals.</p>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((r) => {
+              const draft = drafts[r.verantwoordelijke] || {};
+              const currentTl = draft.teamleaderUserId || "";
+              return (
+                <div key={r.verantwoordelijke} className="flex flex-wrap items-center gap-3 rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary flex-shrink-0">
+                    {r.verantwoordelijke.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-[140px]">
+                    <div className="text-sm font-medium text-foreground truncate">{r.verantwoordelijke}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {r.effectiveFrom ? `Sinds ${new Date(r.effectiveFrom).toLocaleDateString("nl-BE")}` : "Nog geen target"}
+                    </div>
+                  </div>
+
+                  {/* TL user dropdown */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">TL user</span>
+                    <select
+                      value={currentTl}
+                      disabled={!canEdit}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [r.verantwoordelijke]: { ...(prev[r.verantwoordelijke] || {}), teamleaderUserId: v },
+                        }));
+                        setSaveError(null);
+                      }}
+                      className="rounded-lg border border-border/60 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 max-w-[180px]"
+                      title={tlUsers && tlUsers.length === 0 ? "Verbind eerst Teamleader op het Integraties tab" : ""}
+                    >
+                      <option value="">— niet gekoppeld —</option>
+                      {(tlUsers || []).map((u) => (
+                        <option key={u.id} value={u.id} disabled={u.id !== currentTl && usedTlIds.has(u.id)}>
+                          {u.name || u.email || u.id}{u.id !== currentTl && usedTlIds.has(u.id) ? " (al gebruikt)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Weekly target */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Target</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={draft.weeklyTarget ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [r.verantwoordelijke]: { ...(prev[r.verantwoordelijke] || {}), weeklyTarget: v },
+                        }));
+                        setSaveError(null);
+                      }}
+                      placeholder="0"
+                      disabled={!canEdit}
+                      className="h-8 w-16 text-center text-sm tabular-nums"
+                    />
+                    <span className="text-[10px] text-muted-foreground">/wk</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Bezettingsgraad = doorgegaan (WON + LOST) ÷ target × 100%. <span className="font-semibold">Alleen bouwadviseurs met een target verschijnen op de Bezetting-pagina.</span> Verwijder een target (of zet 'm op leeg en sla op) om iemand uit de view te halen. De TL-koppeling zorgt dat afspraken die door een collega worden gedaan correct worden geteld bij de juiste verkoper.
+          {tlUsers && tlUsers.length === 0 && <span className="block mt-1 text-amber-600">Teamleader is niet verbonden — TL user dropdowns zijn leeg. Verbind eerst op Settings → Integraties tab.</span>}
+        </p>
+      </CardContent>
+    </Card>
   );
 }

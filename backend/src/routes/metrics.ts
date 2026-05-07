@@ -23,7 +23,10 @@ router.get("/overview", async (req: AuthRequest, res: Response) => {
   const { dateFrom, dateTo, dateMode, herkomst, status, typeWerken, verantwoordelijke } = req.query;
 
   const dealWhere: any = {};
-  const costWhere: any = {};
+  // ROI/CPL/KPA only count lead-spend costs (the burn that's directly
+  // attributable to lead generation). Algemene kosten = overhead, reported
+  // separately by the Costs page but not blended into ROI math.
+  const costWhere: any = { category: "lead_spend" };
   if (herkomst) {
     dealWhere.herkomst = multiFilter(herkomst);
     // Also filter costs by the same channels
@@ -140,6 +143,7 @@ router.get("/channels", async (req: AuthRequest, res: Response) => {
   if (dateFrom) { const d = new Date(dateFrom as string); costDateFilter.gte = new Date(d.getFullYear(), d.getMonth(), 1); }
   if (dateTo) { const d = new Date(dateTo as string); costDateFilter.lte = new Date(d.getFullYear(), d.getMonth() + 1, 0); }
   const costWhere: any = dateFrom || dateTo ? { date: costDateFilter } : {};
+  costWhere.category = "lead_spend";   // ROI per channel only counts lead-spend costs
   if (herkomst) costWhere.channel = multiFilter(herkomst);
 
   const [dealsByChannel, costsByChannel, wonByChannel, revenueByChannel, appointmentsByChannel] = await Promise.all([
@@ -284,7 +288,8 @@ router.get("/channels", async (req: AuthRequest, res: Response) => {
 router.get("/cost-vs-revenue", async (req: AuthRequest, res: Response) => {
   const { dateFrom, dateTo } = req.query;
 
-  const costWhere: any = {};
+  // Lead-spend only — algemeen costs (overhead) tracked separately
+  const costWhere: any = { category: "lead_spend" };
   const dealWhere: any = { herkomst: { notIn: EXCLUDED_HERKOMST } };
   if (dateFrom || dateTo) {
     const df: any = {};

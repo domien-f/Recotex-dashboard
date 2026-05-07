@@ -76,25 +76,39 @@ async function main() {
       if (!isAppointment) { skipped++; continue; }
 
       try {
-        await prisma.appointment.upsert({
+        // Manual edits in the dashboard win over Teamleader bulk pulls
+        const existing = await prisma.appointment.findUnique({
           where: { teamleaderId: event.id },
-          create: {
-            teamleaderId: event.id,
-            dealId: deal.id,
-            date: new Date(event.starts_at),
-            scheduledAt: deal.dealCreatedAt || null,
-            channel: deal.herkomst || null,
-            notes: event.title || null,
-            outcome,
-          },
-          update: {
-            date: new Date(event.starts_at),
-            scheduledAt: deal.dealCreatedAt || null,
-            channel: deal.herkomst || null,
-            notes: event.title || null,
-            outcome,
-          },
+          select: { id: true, source: true },
         });
+        if (existing?.source === "manual") {
+          // Hands off — only refresh sync timestamp
+          await prisma.appointment.update({ where: { id: existing.id }, data: { lastSyncedAt: new Date() } });
+        } else {
+          await prisma.appointment.upsert({
+            where: { teamleaderId: event.id },
+            create: {
+              teamleaderId: event.id,
+              dealId: deal.id,
+              date: new Date(event.starts_at),
+              scheduledAt: deal.dealCreatedAt || null,
+              channel: deal.herkomst || null,
+              notes: event.title || null,
+              outcome,
+              source: "webhook", // came from TL API → treat as authoritative like a webhook
+              lastSyncedAt: new Date(),
+            },
+            update: {
+              date: new Date(event.starts_at),
+              scheduledAt: deal.dealCreatedAt || null,
+              channel: deal.herkomst || null,
+              notes: event.title || null,
+              outcome,
+              source: "webhook",
+              lastSyncedAt: new Date(),
+            },
+          });
+        }
         if (outcome === "CANCELLED") cancelled++;
         synced++;
       } catch (e: any) {

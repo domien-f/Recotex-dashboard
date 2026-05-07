@@ -24,12 +24,13 @@ const mainNav = [
   { to: "/reclamaties", icon: AlertTriangle, label: "Reclamaties" },
   { to: "/won", icon: Trophy, label: "Won Leads" },
   { to: "/afspraken", icon: CalendarCheck, label: "Afspraken" },
+  { to: "/bezetting", icon: Target, label: "Bezetting" },
   { to: "/sales-funnel", icon: Filter, label: "Sales Funnel" },
 ];
 
 const analyticsNav = [
   { to: "/kosten", icon: Euro, label: "Kosten & ROI" },
-  { to: "/kpi", icon: Target, label: "KPI Targets" },
+  { to: "/kpi", icon: Target, label: "KPI Dashboard" },
   { to: "/budget", icon: TrendingUp, label: "Budget Forecast" },
   { to: "/herkomst", icon: MapPin, label: "Lead Herkomst" },
 ];

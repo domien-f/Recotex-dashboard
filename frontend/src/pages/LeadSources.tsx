@@ -9,6 +9,9 @@ import api from "@/lib/api";
 import { formatCurrency, formatPercent, formatNumber, isFreeChannel } from "@/lib/utils";
 import { MapPin, TrendingUp, BarChart3, Users, Layers } from "lucide-react";
 import { MetricLabel } from "@/components/ui/metric-label";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { DealsDrillModal, type DrillFilter } from "@/components/dashboard/DealsDrillModal";
+import { DrillableNumber } from "@/components/dashboard/DrillableNumber";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -53,6 +56,7 @@ export function LeadSourcesPage() {
   const { dateFrom, dateTo } = useFilterStore();
   const { data: channels, isLoading } = useChannelMetrics();
   const [selected, setSelected] = useState<string[]>([]);
+  const [drill, setDrill] = useState<DrillFilter | null>(null);
 
   const { data: sourceDetail } = useQuery({
     queryKey: ["lead-sources", dateFrom, dateTo],
@@ -121,26 +125,37 @@ export function LeadSourcesPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-5">
-        <KpiCard title="Kanalen" value={formatNumber(sorted.length)} icon={<Layers className="h-4 w-4" />} />
-        <KpiCard title="Totaal Leads" value={formatNumber(totalDeals)} icon={<Users className="h-4 w-4" />} />
-        <KpiCard title="Won Deals" value={formatNumber(totalWon)} icon={<TrendingUp className="h-4 w-4" />} />
-        <KpiCard title="Totale Omzet" value={formatCurrency(totalRevenue)} icon={<BarChart3 className="h-4 w-4" />} />
+        <KpiCard title="Kanalen" value={formatNumber(sorted.length)} icon={<Layers className="h-4 w-4" />} formula={{ label: "Aantal kanalen", description: "Aantal verschillende herkomst-kanalen met deals in deze periode" }} />
+        <KpiCard title="Totaal Leads" value={formatNumber(totalDeals)} icon={<Users className="h-4 w-4" />} onClick={() => setDrill({ title: "Alle leads" })} formula={{ label: "Totaal Leads", description: "Alle deals binnen de huidige filters" }} />
+        <KpiCard title="Won Deals" value={formatNumber(totalWon)} icon={<TrendingUp className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Won deals" })} formula={{ label: "Won Deals", description: "Aantal effectief gewonnen deals" }} />
+        <KpiCard title="Totale Omzet" value={formatCurrency(totalRevenue)} icon={<BarChart3 className="h-4 w-4" />} onClick={() => setDrill({ status: "WON", title: "Omzet — Won deals" })} formula={{ label: "Totale Omzet", description: "Som van alle gewonnen deals" }} />
         <KpiCard title="Eigen Leads" value={`${ownPct.toFixed(1)}%`} icon={<MapPin className="h-4 w-4" />} formula={{ label: "Eigen Leads Percentage", description: "Aandeel leads uit eigen kanalen", formula: "(Eigen leads ÷ Totaal leads) × 100%" }} />
       </div>
 
       {/* Treemap + Volume Bar */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Lead Volume per Kanaal</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Lead Volume per Kanaal
+              <InfoTooltip text="Visuele weergave van het aantal leads per kanaal — grootte = volume. Klik op een vakje voor de deals." />
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={350}>
-              <Treemap data={treemapData} dataKey="size" aspectRatio={4 / 3} content={<TreemapContent />} />
+              <Treemap data={treemapData} dataKey="size" aspectRatio={4 / 3} content={<TreemapContent />}
+                onClick={(d: any) => d?.name && setDrill({ herkomst: d.name, title: `Alle leads — ${d.name}`, inheritGlobal: false })} />
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Won vs Lost per Kanaal</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Won vs Lost per Kanaal
+              <InfoTooltip text="Vergelijking van gewonnen en verloren deals per kanaal. Klik op een staafje voor details." />
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={350}>
               <BarChart data={channelTypeData} layout="vertical">
@@ -149,8 +164,10 @@ export function LeadSourcesPage() {
                 <YAxis type="category" dataKey="channel" tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} width={120} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend formatter={(v: string) => <span className="text-xs text-muted-foreground">{v}</span>} />
-                <Bar dataKey="won" stackId="a" fill="#10b981" name="Won" />
-                <Bar dataKey="lost" stackId="a" fill="#ef4444" name="Lost" />
+                <Bar dataKey="won" stackId="a" fill="#10b981" name="Won" cursor="pointer"
+                  onClick={(d: any) => setDrill({ herkomst: d.channel, status: "WON", title: `Won — ${d.channel}`, inheritGlobal: false })} />
+                <Bar dataKey="lost" stackId="a" fill="#ef4444" name="Lost" cursor="pointer"
+                  onClick={(d: any) => setDrill({ herkomst: d.channel, status: "LOST", title: `Lost — ${d.channel}`, inheritGlobal: false })} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -202,16 +219,21 @@ export function LeadSourcesPage() {
 
       {/* Quality Table */}
       <Card>
-        <CardHeader><CardTitle>Kwaliteitsanalyse per Kanaal</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Kwaliteitsanalyse per Kanaal
+            <InfoTooltip text="Klik op het aantal Deals, Won of de Reclamatie/Kwaliteit-balk om de bijhorende deals te zien." />
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Deals</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Won</th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Kanaal">Kanaal</InfoTooltip></th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Eigen kanalen (geen externe ad-spend) vs Third-party (betaalde leadbronnen)">Type</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Deal">Deals</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Won">Won</InfoTooltip></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Win%" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Recl.%" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Kwaliteit" /></th>
@@ -236,8 +258,16 @@ export function LeadSourcesPage() {
                       <td className="py-3.5">
                         <Badge variant={isOwn ? "success" : "outline"}>{isOwn ? "Eigen" : "Third-party"}</Badge>
                       </td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.deals}</td>
-                      <td className="py-3.5 text-right tabular-nums font-medium text-success">{ch.won}</td>
+                      <td className="py-3.5 text-right tabular-nums">
+                        <DrillableNumber filter={{ herkomst: ch.channel, title: `Alle deals — ${ch.channel}`, inheritGlobal: false }}>
+                          {ch.deals}
+                        </DrillableNumber>
+                      </td>
+                      <td className="py-3.5 text-right tabular-nums font-medium text-success">
+                        <DrillableNumber filter={{ herkomst: ch.channel, status: "WON", title: `Won — ${ch.channel}`, inheritGlobal: false }} className="text-success">
+                          {ch.won}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right">
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
                           Number(ch.winRate) >= 10 ? "bg-success/10 text-success" :
@@ -247,11 +277,15 @@ export function LeadSourcesPage() {
                       </td>
                       <td className="py-3.5 text-right">
                         {source ? (
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
-                            Number(source.reclamationRate) > 50 ? "bg-destructive/10 text-destructive" :
-                            Number(source.reclamationRate) > 20 ? "bg-warning/10 text-warning" :
-                            "bg-success/10 text-success"
-                          }`}>{formatPercent(source.reclamationRate)}</span>
+                          <button
+                            onClick={() => setDrill({ herkomst: ch.channel, reclamation: "true", title: `Reclamaties — ${ch.channel}`, inheritGlobal: false })}
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums hover:opacity-80 transition-opacity ${
+                              Number(source.reclamationRate) > 50 ? "bg-destructive/10 text-destructive" :
+                              Number(source.reclamationRate) > 20 ? "bg-warning/10 text-warning" :
+                              "bg-success/10 text-success"
+                            }`}
+                            title="Klik voor reclamaties"
+                          >{formatPercent(source.reclamationRate)}</button>
                         ) : "-"}
                       </td>
                       <td className="py-3.5 text-right">
@@ -264,7 +298,11 @@ export function LeadSourcesPage() {
                           </div>
                         ) : "-"}
                       </td>
-                      <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
+                      <td className="py-3.5 text-right font-semibold tabular-nums">
+                        <DrillableNumber filter={{ herkomst: ch.channel, status: "WON", title: `Omzet — ${ch.channel}`, inheritGlobal: false }}>
+                          {formatCurrency(ch.revenue)}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right tabular-nums text-muted-foreground">{isFreeChannel(ch.channel) ? <span className="text-xs text-muted-foreground/60">NVT</span> : ch.cost > 0 ? formatCurrency(ch.cpl) : "-"}</td>
                       <td className="py-3.5 text-right">
                         {isFreeChannel(ch.channel) ? <span className="text-xs text-muted-foreground/60">NVT</span> : ch.cost > 0 ? (
@@ -328,7 +366,12 @@ export function LeadSourcesPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Deals per Kanaal</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Deals per Kanaal
+              <InfoTooltip text="Aantal leads per kanaal. Klik op een staaf voor de onderliggende deals." />
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={sorted.filter((c) => c.deals > 5)}>
@@ -336,12 +379,15 @@ export function LeadSourcesPage() {
                 <XAxis dataKey="channel" tick={{ fontSize: 10, fill: "#71717a" }} axisLine={false} tickLine={false} angle={-45} textAnchor="end" height={80} />
                 <YAxis tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="deals" fill="#1a3860" name="Deals" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="deals" fill="#1a3860" name="Deals" radius={[4, 4, 0, 0]} cursor="pointer"
+                  onClick={(d: any) => setDrill({ herkomst: d.channel, title: `Alle deals — ${d.channel}`, inheritGlobal: false })} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
+
+      {drill && <DealsDrillModal filter={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

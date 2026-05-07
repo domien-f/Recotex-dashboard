@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -11,6 +12,9 @@ import {
   LineChart, Line, Treemap,
 } from "recharts";
 import { AppointmentMap } from "@/components/charts/AppointmentMap";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { DealsDrillModal, type DrillFilter } from "@/components/dashboard/DealsDrillModal";
+import { DrillableNumber } from "@/components/dashboard/DrillableNumber";
 
 // Belgian province mapping by postcode prefix
 function getProvince(postcode: string): string {
@@ -89,6 +93,7 @@ const TreemapContent = ({ x, y, width, height, name, count, fill }: any) => {
 
 export function AppointmentsPage() {
   const { dateFrom, dateTo } = useFilterStore();
+  const [drill, setDrill] = useState<DrillFilter | null>(null);
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ["appointments", "stats", dateFrom, dateTo],
@@ -148,15 +153,15 @@ export function AppointmentsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Afspraken</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Overzicht, spreiding en performance per kanaal</p>
+        <p className="mt-1 text-sm text-muted-foreground">Overzicht, spreiding en performance per kanaal · klik op een waarde voor de bijhorende deals</p>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-        <KpiCard title="Afspraken" value={formatNumber(stats?.total || 0)} icon={<CalendarCheck className="h-4 w-4" />} />
-        <KpiCard title="Kanalen" value={formatNumber(channelData.length)} icon={<BarChart3 className="h-4 w-4" />} />
-        <KpiCard title="Provincies" value={formatNumber(provinceData.length)} icon={<MapPin className="h-4 w-4" />} />
-        <KpiCard title="Gem. Kost" value={formatCurrency(stats?.avgCost || 0)} icon={<TrendingUp className="h-4 w-4" />} />
+        <KpiCard title="Afspraken" value={formatNumber(stats?.total || 0)} icon={<CalendarCheck className="h-4 w-4" />} onClick={() => setDrill({ status: "APPOINTMENT,WON,LOST", title: "Deals met afspraak" })} formula={{ label: "Afspraken", description: "Aantal ingeplande afspraken in deze periode" }} />
+        <KpiCard title="Kanalen" value={formatNumber(channelData.length)} icon={<BarChart3 className="h-4 w-4" />} formula={{ label: "Kanalen", description: "Aantal verschillende kanalen waaruit afspraken voortkomen" }} />
+        <KpiCard title="Provincies" value={formatNumber(provinceData.length)} icon={<MapPin className="h-4 w-4" />} formula={{ label: "Provincies", description: "Aantal Belgische provincies met minstens 1 afspraak" }} />
+        <KpiCard title="Gem. Kost" value={formatCurrency(stats?.avgCost || 0)} icon={<TrendingUp className="h-4 w-4" />} formula={{ label: "Gemiddelde Kost per Afspraak", description: "Gem. kost per ingeplande afspraak", formula: "Σ(afspraak.kost) ÷ aantal afspraken" }} />
       </div>
 
       {/* Map */}
@@ -192,7 +197,12 @@ export function AppointmentsPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Afspraken per Kanaal</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              Afspraken per Kanaal
+              <InfoTooltip text="Aantal afspraken per kanaal. Klik op een staaf voor de bijhorende deals." />
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             {channelData.length > 0 ? (
               <ResponsiveContainer width="100%" height={400}>
@@ -201,7 +211,8 @@ export function AppointmentsPage() {
                   <XAxis type="number" tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} />
                   <YAxis type="category" dataKey="channel" tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} width={140} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="count" name="Afspraken" radius={[0, 6, 6, 0]} fill="#f08300" />
+                  <Bar dataKey="count" name="Afspraken" radius={[0, 6, 6, 0]} fill="#f08300" cursor="pointer"
+                    onClick={(d: any) => setDrill({ herkomst: d.channel, status: "APPOINTMENT,WON,LOST", title: `Afspraken — ${d.channel}`, inheritGlobal: false })} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -298,17 +309,22 @@ export function AppointmentsPage() {
 
       {/* Channel Performance Table */}
       <Card>
-        <CardHeader><CardTitle>Kanaal Performance</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Kanaal Performance
+            <InfoTooltip text="Klik op het aantal afspraken voor de bijhorende deals." />
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kanaal</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Afspraken</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">% van totaal</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Totale Kost</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Kost/Afspraak</th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Kanaal">Kanaal</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Afspraak">Afspraken</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Aandeel van het totaal aantal afspraken">% van totaal</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Som van alle kosten gekoppeld aan deze afspraken">Totale Kost</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="KPA">Kost/Afspraak</InfoTooltip></th>
                 </tr>
               </thead>
               <tbody>
@@ -320,7 +336,11 @@ export function AppointmentsPage() {
                         <span className="font-medium text-foreground">{ch.channel}</span>
                       </div>
                     </td>
-                    <td className="py-3.5 text-right font-medium tabular-nums">{ch.count}</td>
+                    <td className="py-3.5 text-right font-medium tabular-nums">
+                      <DrillableNumber filter={{ herkomst: ch.channel, status: "APPOINTMENT,WON,LOST", title: `Afspraken — ${ch.channel}`, inheritGlobal: false }}>
+                        {ch.count}
+                      </DrillableNumber>
+                    </td>
                     <td className="py-3.5 text-right tabular-nums text-muted-foreground">
                       {stats?.total > 0 ? ((ch.count / stats.total) * 100).toFixed(1) : 0}%
                     </td>
@@ -335,6 +355,8 @@ export function AppointmentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {drill && <DealsDrillModal filter={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

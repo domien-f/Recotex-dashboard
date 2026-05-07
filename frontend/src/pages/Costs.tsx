@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -7,11 +7,16 @@ import { Badge } from "@/components/ui/badge";
 
 
 import { useAuthStore } from "@/store/authStore";
-import { useMetricsOverview, useChannelMetrics, useCostVsRevenue } from "@/hooks/useMetrics";
+import { useMetricsOverview, useChannelMetrics, useCostVsRevenue, useCostSummary } from "@/hooks/useMetrics";
 import api from "@/lib/api";
 import { formatCurrency, isFreeChannel } from "@/lib/utils";
-import { Euro, TrendingUp, TrendingDown, Wallet, ArrowUpDown, CalendarCheck, HelpCircle, X, Settings, BarChart } from "lucide-react";
+import { Euro, TrendingUp, TrendingDown, Wallet, ArrowUpDown, HelpCircle, X, Settings, BarChart, Plus, Save, Trash2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { MetricLabel } from "@/components/ui/metric-label";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { DealsDrillModal, type DrillFilter } from "@/components/dashboard/DealsDrillModal";
+import { DrillableNumber } from "@/components/dashboard/DrillableNumber";
 import {
   BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   ComposedChart, Line,
@@ -84,13 +89,17 @@ export function CostsPage() {
 // ─── Analytics Tab ───
 
 function AnalyticsTab() {
+  const [drill, setDrill] = useState<DrillFilter | null>(null);
   const { data: overview, isLoading } = useMetricsOverview();
   const { data: channels } = useChannelMetrics();
   const { data: costVsRevenue } = useCostVsRevenue();
+  const { data: costSummary } = useCostSummary();
 
   if (isLoading) return <div className="flex h-32 items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
 
-  const totalCost = overview?.totalCost || 0;
+  const leadSpendCost = Number(costSummary?.leadSpendTotal || overview?.totalCost || 0);
+  const algemeenCost = Number(costSummary?.algemeenTotal || 0);
+  const totalCost = leadSpendCost + algemeenCost;
   const totalRevenue = overview?.totalRevenue || 0;
   const netResult = totalRevenue - totalCost;
 
@@ -101,13 +110,57 @@ function AnalyticsTab() {
   return (
     <div className="space-y-8">
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-5 lg:grid-cols-6">
-        <KpiCard title="Totale Kost" value={formatCurrency(totalCost)} icon={<Euro className="h-4 w-4" />} isEstimated={overview?.hasEstimatedCosts} />
-        <KpiCard title="Totale Omzet" value={formatCurrency(totalRevenue)} icon={<Wallet className="h-4 w-4" />} />
-        <KpiCard title="Netto Resultaat" value={formatCurrency(netResult)} icon={netResult >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />} />
-        <KpiCard title="CPL" value={formatCurrency(overview?.cpl || 0)} icon={<BarChart className="h-4 w-4" />} />
-        <KpiCard title="KPA" value={formatCurrency(overview?.kpa || 0)} icon={<CalendarCheck className="h-4 w-4" />} />
-        <KpiCard title="ROI" value={`${overview?.roi || 0}x`} icon={<ArrowUpDown className="h-4 w-4" />} />
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-3">
+        <KpiCard
+          title="Lead Spend"
+          value={formatCurrency(leadSpendCost)}
+          icon={<Euro className="h-4 w-4" />}
+          isEstimated={overview?.hasEstimatedCosts}
+          subtitle="Direct attribueerbaar aan lead-generatie — vormt basis voor ROI/CPL/KPA"
+          formula={{ label: "Lead Spend", description: "Som van alle kosten met category=lead_spend (Solvari, Meta, Google, Renocheck, ...).", formula: "Σ cost.amount WHERE category = 'lead_spend'" }}
+        />
+        <KpiCard
+          title="Algemeen / Overhead"
+          value={formatCurrency(algemeenCost)}
+          icon={<Wallet className="h-4 w-4" />}
+          subtitle="Beurzen, salarissen, IT, sponsoring — niet meegerekend in ROI"
+          formula={{ label: "Algemene Kosten", description: "Overhead-kosten: beurzen, marketing team, IT-systemen, sponsoring, fees, ...", formula: "Σ cost.amount WHERE category = 'algemeen'" }}
+        />
+        <KpiCard
+          title="Totale Kost"
+          value={formatCurrency(totalCost)}
+          icon={<Euro className="h-4 w-4" />}
+          subtitle={`Lead spend + algemeen — totaal in deze periode`}
+          formula={{ label: "Totale Kost", description: "Lead spend + algemene overhead samen.", formula: "Lead spend + Algemeen" }}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+        <KpiCard
+          title="Totale Omzet"
+          value={formatCurrency(totalRevenue)}
+          icon={<Wallet className="h-4 w-4" />}
+          onClick={() => setDrill({ status: "WON", title: "Omzet — Won deals" })}
+          formula={{ label: "Totale Omzet", description: "Som van alle gewonnen deals", formula: "Σ revenue waar status = WON" }}
+        />
+        <KpiCard
+          title="Netto Resultaat"
+          value={formatCurrency(netResult)}
+          icon={netResult >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+          formula={{ label: "Netto Resultaat", description: "Winst na aftrek van ALLE kosten (lead spend + algemeen).", formula: "Totale omzet − Totale kost" }}
+        />
+        <KpiCard
+          title="CPL (lead spend)"
+          value={formatCurrency(overview?.cpl || 0)}
+          icon={<BarChart className="h-4 w-4" />}
+          formula={{ label: "Cost Per Lead", description: "Lead spend ÷ aantal leads. Algemene kosten worden NIET meegerekend.", formula: "Lead spend ÷ Aantal leads" }}
+        />
+        <KpiCard
+          title="ROI (lead spend)"
+          value={`${overview?.roi || 0}x`}
+          icon={<ArrowUpDown className="h-4 w-4" />}
+          formula={{ label: "Return On Investment (lead spend)", description: "Omzet ÷ lead spend. Algemene kosten zijn overhead en worden NIET in ROI verwerkt.", formula: "Totale omzet ÷ Lead spend" }}
+        />
       </div>
 
       {/* Cost vs Revenue */}
@@ -158,15 +211,22 @@ function AnalyticsTab() {
 
       {/* Channel Table */}
       <Card>
-        <CardHeader><CardTitle>Kosten & ROI per Kanaal</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Kosten & ROI per Kanaal
+            <InfoTooltip text="Klik op het aantal Deals, Won of Omzet om de bijhorende deals te zien." />
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  {["Kanaal", "Deals", "Won", "Kost", "Omzet"].map((h) => (
-                    <th key={h} className={`pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground ${h !== "Kanaal" ? "text-right" : ""}`}>{h}</th>
-                  ))}
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Kanaal">Kanaal</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Deal">Deals</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Won">Won</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Totale advertentie- en marketingkost voor dit kanaal in de periode">Kost</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip text="Totale gerealiseerde omzet uit gewonnen deals">Omzet</InfoTooltip></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="CPL" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="KPA" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="COA" /></th>
@@ -188,10 +248,22 @@ function AnalyticsTab() {
                           {!free && <CostCoverageBadge channel={ch.channel} costMonths={ch.costMonths} totalMonths={ch.totalMonths} costComplete={ch.costComplete} missingMonths={ch.missingMonths} cost={ch.cost} deals={ch.deals} invoiceCoverage={ch.invoiceCoverage} />}
                         </div>
                       </td>
-                      <td className="py-3.5 text-right tabular-nums">{ch.deals}</td>
-                      <td className="py-3.5 text-right font-medium tabular-nums text-success">{ch.won}</td>
+                      <td className="py-3.5 text-right tabular-nums">
+                        <DrillableNumber filter={{ herkomst: ch.channel, title: `Alle deals — ${ch.channel}`, inheritGlobal: false }}>
+                          {ch.deals}
+                        </DrillableNumber>
+                      </td>
+                      <td className="py-3.5 text-right font-medium tabular-nums text-success">
+                        <DrillableNumber filter={{ herkomst: ch.channel, status: "WON", title: `Won — ${ch.channel}`, inheritGlobal: false }} className="text-success">
+                          {ch.won}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.cost) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
-                      <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(ch.revenue)}</td>
+                      <td className="py-3.5 text-right font-semibold tabular-nums">
+                        <DrillableNumber filter={{ herkomst: ch.channel, status: "WON", title: `Omzet — ${ch.channel}`, inheritGlobal: false }}>
+                          {formatCurrency(ch.revenue)}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.cpl) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
                       <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.kpa) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
                       <td className="py-3.5 text-right tabular-nums">{free ? nvt : ch.cost > 0 ? formatCurrency(ch.coa) : ch.costMonths > 0 ? formatCurrency(0) : <span className="text-muted-foreground">-</span>}</td>
@@ -205,6 +277,8 @@ function AnalyticsTab() {
           </div>
         </CardContent>
       </Card>
+
+      {drill && <DealsDrillModal filter={drill} onClose={() => setDrill(null)} />}
 
       {/* Monthly Overview */}
       {costVsRevenue && costVsRevenue.length > 0 && (
@@ -572,7 +646,195 @@ function BeheerTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Add new cost line (lead spend) */}
+      {canEdit() && data && data.months.length > 0 && (
+        <AddCostLine months={data.months} existingChannels={data.channels} />
+      )}
+
+      {/* ─── Algemene Kosten — overhead, non-lead-spend ─── */}
+      <AlgemeenMatrix />
+
+      {canEdit() && data && data.months.length > 0 && (
+        <AddAlgemeenCostLine months={data.months} />
+      )}
     </div>
+  );
+}
+
+// ─── Add Cost Line (new channel + bulk months) ───
+
+const SUGGESTED_CHANNELS = [
+  "Solvari", "Red Pepper", "Renocheck", "PPA", "Bis Beurs",
+  "Bouw En Reno", "Offertevergelijker", "Serieus Verbouwen",
+  "Jaimy", "Fourvision", "Giga Leads", "Reactivatie",
+];
+
+const MONTH_NAMES_NL: Record<string, string> = {
+  "01": "Jan", "02": "Feb", "03": "Mrt", "04": "Apr", "05": "Mei", "06": "Jun",
+  "07": "Jul", "08": "Aug", "09": "Sep", "10": "Okt", "11": "Nov", "12": "Dec",
+};
+
+function fmtMonthLabel(ym: string): string {
+  const [y, m] = ym.split("-");
+  return `${MONTH_NAMES_NL[m] || m} '${y.slice(2)}`;
+}
+
+function AddCostLine({ months, existingChannels }: { months: string[]; existingChannels: string[] }) {
+  const queryClient = useQueryClient();
+  const [channel, setChannel] = useState("");
+  const [description, setDescription] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const total = months.reduce((s, m) => s + (parseFloat(values[m] || "0") || 0), 0);
+  const filledCount = months.filter((m) => parseFloat(values[m] || "0") > 0).length;
+  const trimmed = channel.trim();
+  const channelExists = trimmed.length > 0 && existingChannels.some((c) => c.toLowerCase() === trimmed.toLowerCase());
+  const canSave = !!trimmed && filledCount > 0 && !saving;
+
+  const reset = () => {
+    setChannel("");
+    setDescription("");
+    setValues({});
+    setError(null);
+  };
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const requests = months
+        .filter((m) => parseFloat(values[m] || "0") > 0)
+        .map((m) =>
+          api.put("/costs/channel-month", {
+            channel: trimmed,
+            month: m,
+            amount: parseFloat(values[m]),
+            description: description.trim() || undefined,
+          })
+        );
+      await Promise.all(requests);
+      queryClient.invalidateQueries({ queryKey: ["costs"] });
+      queryClient.invalidateQueries({ queryKey: ["metrics"] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      reset();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Opslaan mislukt");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="border-dashed border-primary/30">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5">
+            <Plus className="h-4 w-4 text-primary" />
+            Nieuwe kostenpost toevoegen
+            <InfoTooltip text="Voeg een nieuw kanaal of een nieuwe rij toe en vul de bedragen voor één of meer maanden tegelijk in. Bestaande kanalen kunnen ook hier hun nieuwe maandkost krijgen — deze wordt samengevoegd met wat er al staat." />
+          </CardTitle>
+          {saved && <span className="text-xs font-semibold text-success">Opgeslagen</span>}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Channel name + description */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Kanaal / Kostenpost
+            </label>
+            <Input
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+              placeholder="bv. Solvari, Bis Beurs, Eventbudget..."
+              list="cost-channel-suggestions"
+              className="h-9"
+            />
+            <datalist id="cost-channel-suggestions">
+              {SUGGESTED_CHANNELS.map((s) => (<option key={s} value={s} />))}
+            </datalist>
+            {channelExists && (
+              <p className="mt-1 text-[11px] text-amber-600">
+                Bestaand kanaal — bedragen worden toegevoegd of overschreven.
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Omschrijving (optioneel)
+            </label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="bv. Q4 campagne, beursdeelname..."
+              className="h-9"
+            />
+          </div>
+        </div>
+
+        {/* Month grid */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Bedragen per maand
+            </label>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              Totaal: <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
+              {filledCount > 0 && <span> · {filledCount} maand{filledCount !== 1 && "en"}</span>}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+            {months.map((m) => (
+              <div key={m}>
+                <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {fmtMonthLabel(m)}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">€</span>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={values[m] || ""}
+                    onChange={(e) => setValues({ ...values, [m]: e.target.value })}
+                    placeholder="0"
+                    className="h-8 pl-5 pr-1.5 text-xs"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 border-t border-border/40 pt-3">
+          {(trimmed || filledCount > 0) && (
+            <button
+              onClick={reset}
+              className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted/40 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Wissen
+            </button>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={!canSave}>
+            <Save className="mr-1.5 h-3.5 w-3.5" />
+            {saving ? "Opslaan..." : `Opslaan${filledCount > 0 ? ` (${filledCount})` : ""}`}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -605,5 +867,379 @@ function InfoModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Algemene Kosten Matrix (overhead, non-lead-spend) ───────────────────
+
+const ALGEMEEN_CATEGORIES = [
+  "Beurzen",
+  "Offline marketing + diverse kosten",
+  "Call Centre kosten",
+  "Marketing team",
+  "Fees",
+  "Sponsoring kosten",
+  "IT-Systemen",
+];
+
+interface AlgemeenMatrixData {
+  lineItems: string[];
+  lineMeta: Record<string, { category: string; subcategory: string }>;
+  months: string[];
+  matrix: Record<string, Record<string, {
+    amount: number;
+    budget: number | null;
+    source: string | null;
+    updatedAt: string | null;
+    type: string;
+  }>>;
+}
+
+function AlgemeenMatrix() {
+  const queryClient = useQueryClient();
+  const canEdit = useAuthStore((s) => s.canEdit);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const { data } = useQuery<AlgemeenMatrixData>({
+    queryKey: ["costs", "algemeen-matrix"],
+    queryFn: async () => (await api.get("/costs/algemeen-matrix?dateFrom=2026-01-01&dateTo=2026-12-31")).data,
+  });
+
+  const handleSave = async (category: string, subcategory: string, month: string, key: string) => {
+    const raw = editValues[key];
+    const val = raw === "" || raw === undefined ? null : parseFloat(raw);
+    setSaving(true);
+    try {
+      await api.put("/costs/category-month", { category, subcategory, month, amount: val });
+      queryClient.invalidateQueries({ queryKey: ["costs"] });
+      queryClient.invalidateQueries({ queryKey: ["metrics"] });
+      setEditValues((prev) => { const n = { ...prev }; delete n[key]; return n; });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!data) return null;
+
+  // Group line items by category for visual blocking
+  const grouped = new Map<string, string[]>();
+  for (const k of data.lineItems) {
+    const meta = data.lineMeta[k];
+    if (!meta) continue;
+    const arr = grouped.get(meta.category) || [];
+    arr.push(k);
+    grouped.set(meta.category, arr);
+  }
+
+  if (data.lineItems.length === 0) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Algemene Kosten</CardTitle></CardHeader>
+        <CardContent>
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Nog geen algemene kosten of budget rijen — voeg er een toe via het formulier hieronder.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5">
+            Algemene Kosten — Budget vs Werkelijk
+            <InfoTooltip text="Overhead-kosten die NIET in ROI/CPL worden meegerekend (Beurzen, Marketing team, IT, sponsoring, fees, ...). Klik op een cel om de werkelijke kost in te vullen. De grijze waarde toont het budget uit het 2026 budgetplan." />
+          </CardTitle>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-warning" /> Manueel</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-muted-foreground/30" /> Geen kost</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/60">
+                <th className="pb-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground sticky left-0 bg-white min-w-[280px] z-10">Lijn-item</th>
+                {data.months.map((m) => (
+                  <th key={m} className="pb-3 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground min-w-[110px]">{m}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from(grouped.entries()).map(([category, items]) => (
+                <Fragment key={category}>
+                  <tr className="bg-muted/40">
+                    <td colSpan={data.months.length + 1} className="py-2 px-3 text-xs font-bold uppercase tracking-wider text-foreground">
+                      {category}
+                    </td>
+                  </tr>
+                  {items.map((k) => {
+                    const meta = data.lineMeta[k];
+                    return (
+                      <tr key={k} className="border-b border-border/30 hover:bg-muted/20">
+                        <td className="py-3 sticky left-0 bg-white z-10">
+                          <div className="text-sm text-foreground">{meta?.subcategory || "(geen subcategorie)"}</div>
+                        </td>
+                        {data.months.map((month) => {
+                          const cell = data.matrix[k]?.[month];
+                          const editKey = `${k}__${month}`;
+                          const isEditing = editKey in editValues;
+                          const editable = canEdit();
+
+                          if (isEditing) {
+                            return (
+                              <td key={month} className="py-2 text-center">
+                                <div className="flex items-center gap-1 justify-center">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className="w-20 rounded border border-border px-1.5 py-1 text-xs text-center"
+                                    value={editValues[editKey]}
+                                    onChange={(e) => setEditValues({ ...editValues, [editKey]: e.target.value })}
+                                    placeholder="€"
+                                    autoFocus
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleSave(meta.category, meta.subcategory, month, editKey); if (e.key === "Escape") setEditValues((p) => { const n = { ...p }; delete n[editKey]; return n; }); }}
+                                  />
+                                  <button
+                                    className="text-xs text-success font-semibold hover:underline"
+                                    onClick={() => handleSave(meta.category, meta.subcategory, month, editKey)}
+                                    disabled={saving}
+                                  >OK</button>
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          if (cell && cell.amount > 0) {
+                            return (
+                              <td key={month} className="py-2 text-center">
+                                <button
+                                  className={editable ? "flex flex-col items-center gap-0.5 cursor-pointer rounded-lg px-1 py-0.5 hover:bg-muted/60 transition-colors w-full" : "flex flex-col items-center gap-0.5 w-full"}
+                                  onClick={editable ? () => setEditValues({ ...editValues, [editKey]: String(cell.amount) }) : undefined}
+                                  title={editable ? "Klik om te bewerken" : undefined}
+                                >
+                                  <span className="text-sm font-semibold tabular-nums">{formatCurrency(cell.amount)}</span>
+                                  {cell.budget !== null && (
+                                    <span className="text-[9px] text-muted-foreground">budget {formatCurrency(cell.budget)}</span>
+                                  )}
+                                </button>
+                              </td>
+                            );
+                          }
+
+                          // No actual cost — show budget placeholder if available, plus an inline + button
+                          if (cell && cell.budget !== null) {
+                            return (
+                              <td key={month} className="py-2 text-center">
+                                {editable ? (
+                                  <button
+                                    className="flex flex-col items-center gap-0.5 cursor-pointer rounded-lg border border-dashed border-muted-foreground/30 px-2 py-1 hover:border-primary hover:text-primary transition-colors w-full"
+                                    onClick={() => setEditValues({ ...editValues, [editKey]: "" })}
+                                  >
+                                    <span className="text-[10px] text-muted-foreground/60">+ invoeren</span>
+                                    <span className="text-[9px] text-muted-foreground">budget {formatCurrency(cell.budget)}</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">budget {formatCurrency(cell.budget)}</span>
+                                )}
+                              </td>
+                            );
+                          }
+
+                          // Nothing at all
+                          if (editable) {
+                            return (
+                              <td key={month} className="py-2 text-center">
+                                <button
+                                  className="rounded-lg border border-dashed border-muted-foreground/30 px-3 py-1.5 text-[10px] text-muted-foreground/50 hover:border-primary hover:text-primary transition-colors"
+                                  onClick={() => setEditValues({ ...editValues, [editKey]: "" })}
+                                >+ invoeren</button>
+                              </td>
+                            );
+                          }
+                          return <td key={month} className="py-2 text-center"><span className="text-muted-foreground/30">—</span></td>;
+                        })}
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Add new algemene kostenpost (category + subcategory + bulk months) ──
+
+function AddAlgemeenCostLine({ months }: { months: string[] }) {
+  const queryClient = useQueryClient();
+  const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const total = months.reduce((s, m) => s + (parseFloat(values[m] || "0") || 0), 0);
+  const filledCount = months.filter((m) => parseFloat(values[m] || "0") > 0).length;
+  const trimmedCat = category.trim();
+  const trimmedSub = subcategory.trim();
+  const canSave = !!trimmedCat && filledCount > 0 && !saving;
+
+  const reset = () => {
+    setCategory("");
+    setSubcategory("");
+    setDescription("");
+    setValues({});
+    setError(null);
+  };
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const requests = months
+        .filter((m) => parseFloat(values[m] || "0") > 0)
+        .map((m) =>
+          api.put("/costs/category-month", {
+            category: trimmedCat,
+            subcategory: trimmedSub || null,
+            month: m,
+            amount: parseFloat(values[m]),
+            description: description.trim() || undefined,
+          })
+        );
+      await Promise.all(requests);
+      queryClient.invalidateQueries({ queryKey: ["costs"] });
+      queryClient.invalidateQueries({ queryKey: ["metrics"] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      reset();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Opslaan mislukt");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="border-dashed border-warning/40">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5">
+            <Plus className="h-4 w-4 text-warning" />
+            Nieuwe algemene kostenpost toevoegen
+            <InfoTooltip text="Voor overhead-kosten die geen lead-spend zijn (kantoorhuur, salarissen, sponsoring, IT, beurzen, ...). Worden niet gebruikt voor ROI/CPL berekeningen." />
+          </CardTitle>
+          {saved && <span className="text-xs font-semibold text-success">Opgeslagen</span>}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Categorie
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="h-9 w-full rounded-lg border border-border/60 bg-white px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">— kies categorie —</option>
+              {ALGEMEEN_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Subcategorie / lijn-item
+            </label>
+            <Input
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+              placeholder="bv. Jordy, Adobe, AA Gent..."
+              className="h-9"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Omschrijving (optioneel)
+            </label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="bv. Jaarcontract, Q1 sponsorbijdrage..."
+              className="h-9"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Bedragen per maand
+            </label>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              Totaal: <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
+              {filledCount > 0 && <span> · {filledCount} maand{filledCount !== 1 && "en"}</span>}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+            {months.map((m) => (
+              <div key={m}>
+                <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {m}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">€</span>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={values[m] || ""}
+                    onChange={(e) => setValues({ ...values, [m]: e.target.value })}
+                    placeholder="0"
+                    className="h-8 pl-5 pr-1.5 text-xs"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 border-t border-border/40 pt-3">
+          {(trimmedCat || filledCount > 0) && (
+            <button
+              onClick={reset}
+              className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted/40 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Wissen
+            </button>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={!canSave}>
+            <Save className="mr-1.5 h-3.5 w-3.5" />
+            {saving ? "Opslaan..." : `Opslaan${filledCount > 0 ? ` (${filledCount})` : ""}`}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

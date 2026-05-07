@@ -114,13 +114,23 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
       };
 
       if (email) {
-        contact = await prisma.contact.upsert({
-          where: { email },
-          create: { ...data, email },
-          update: { phone: data.phone || undefined, name: data.name || undefined },
-        });
+        // Dedup on email; never overwrite webhook-fresh fields
+        const found = await prisma.contact.findUnique({ where: { email }, select: { id: true, source: true } });
+        if (found) {
+          if (found.source !== "webhook") {
+            contact = await prisma.contact.update({
+              where: { id: found.id },
+              data: { phone: data.phone || undefined, name: data.name || undefined, source: "excel", lastSyncedAt: new Date() },
+            });
+          } else {
+            // Webhook-managed contact — only refresh lastSyncedAt to acknowledge we saw it
+            contact = await prisma.contact.update({ where: { id: found.id }, data: { lastSyncedAt: new Date() } });
+          }
+        } else {
+          contact = await prisma.contact.create({ data: { ...data, email, source: "excel", lastSyncedAt: new Date() } });
+        }
       } else {
-        contact = await prisma.contact.create({ data: { ...data, email: null } });
+        contact = await prisma.contact.create({ data: { ...data, email: null, source: "excel", lastSyncedAt: new Date() } });
       }
       contactIdMap.set(contactKey, contact.id);
       contactCount++;
@@ -193,13 +203,44 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
       const checkKey = `${title || ""}||${(email || "").toLowerCase()}`;
       const existingId = existingDealMap.get(checkKey);
 
-      if (existingId) {
-        await prisma.deal.update({ where: { id: existingId }, data: dealData });
+      // Cross-source dedup key — must match what teamleaderWebhook.dealExternalRef computes.
+      // Re-imports will collide on this key, AND TL webhooks for the same deal will
+      // match this row (and set teamleaderId), so no duplicate ever appears.
+      const { dealExternalRef } = await import("../services/teamleaderWebhook.js");
+      const externalRef = dealExternalRef(title, email, dealCreatedAt);
+
+      if (existingId && existingId !== "new") {
+        // Skip overwriting webhook-fresh rows — Excel respects webhook truth
+        const existing = await prisma.deal.findUnique({ where: { id: existingId }, select: { source: true } });
+        if (existing?.source !== "webhook") {
+          await prisma.deal.update({
+            where: { id: existingId },
+            data: { ...dealData, externalRef, source: "excel", lastSyncedAt: new Date() },
+          });
+        } else {
+          await prisma.deal.update({ where: { id: existingId }, data: { externalRef, lastSyncedAt: new Date() } });
+        }
         updated++;
-      } else {
-        await prisma.deal.create({ data: dealData });
-        existingDealMap.set(checkKey, "new"); // Prevent duplicates within same import
-        created++;
+      } else if (!existingId) {
+        // Last guard: try matching by externalRef before insert (in case the same
+        // deal already exists from a webhook arriving before this Excel import)
+        const byRef = await prisma.deal.findUnique({ where: { externalRef }, select: { id: true, source: true } });
+        if (byRef) {
+          if (byRef.source !== "webhook" && byRef.source !== "manual") {
+            await prisma.deal.update({
+              where: { id: byRef.id },
+              data: { ...dealData, externalRef, source: "excel", lastSyncedAt: new Date() },
+            });
+          } else {
+            await prisma.deal.update({ where: { id: byRef.id }, data: { lastSyncedAt: new Date() } });
+          }
+          existingDealMap.set(checkKey, byRef.id);
+          updated++;
+        } else {
+          await prisma.deal.create({ data: { ...dealData, externalRef, source: "excel", lastSyncedAt: new Date() } });
+          existingDealMap.set(checkKey, "new"); // Prevent duplicates within same import
+          created++;
+        }
       }
       if ((created + updated) % 500 === 0) console.log(`  ${created} created, ${updated} updated...`);
     } catch (e: any) {
@@ -208,9 +249,11 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
     }
   }
 
-  // Rebuild appointments from deal phases
-  console.log("Rebuilding appointments from deal phases...");
-  await prisma.appointment.deleteMany({});
+  // ─── Sync appointments from deal phases ────────────────────────────────
+  // CRITICAL: do NOT wipe appointments — webhook-written rows must survive
+  // re-imports. We upsert by externalRef = sha1(dealId + scheduledAt-minute)
+  // so re-running the same Excel file is idempotent.
+  console.log("Syncing appointments from deal phases (preserving webhook + manual rows)...");
 
   const APPOINTMENT_PHASES = [
     'Meeting gepland', 'Negotiatie', 'Opvolging adviseur',
@@ -228,11 +271,63 @@ export async function importFromExcel(filePath: string, since?: Date): Promise<{
     ORDER BY contact_id, deal_created_at ASC
   `;
 
+  const { createHash } = await import("node:crypto");
+  const externalRefFor = (dealId: string, scheduledAt: Date) => {
+    const m = new Date(scheduledAt);
+    m.setSeconds(0, 0);
+    return createHash("sha1").update(`${dealId}|${m.toISOString()}`).digest("hex");
+  };
+
+  let apptCreated = 0;
+  let apptUpdated = 0;
+  let apptSkippedWebhook = 0;
   for (const d of appointmentDeals) {
-    await prisma.appointment.create({
-      data: { dealId: d.id, date: d.deal_created_at, scheduledAt: d.deal_created_at, channel: d.herkomst, notes: d.title },
+    if (!d.deal_created_at) continue;
+    const externalRef = externalRefFor(d.id, d.deal_created_at);
+
+    // Look up by externalRef (Excel-style key)
+    const existing = await prisma.appointment.findUnique({
+      where: { externalRef },
+      select: { id: true, source: true },
     });
+
+    if (existing) {
+      if (existing.source === "webhook" || existing.source === "manual") {
+        // Hands off — webhook/manual owns this row
+        apptSkippedWebhook++;
+        continue;
+      }
+      await prisma.appointment.update({
+        where: { id: existing.id },
+        data: {
+          dealId: d.id,
+          date: d.deal_created_at,
+          scheduledAt: d.deal_created_at,
+          channel: d.herkomst,
+          notes: d.title,
+          source: "excel",
+          lastSyncedAt: new Date(),
+        },
+      });
+      apptUpdated++;
+    } else {
+      await prisma.appointment.create({
+        data: {
+          dealId: d.id,
+          date: d.deal_created_at,
+          scheduledAt: d.deal_created_at,
+          channel: d.herkomst,
+          notes: d.title,
+          externalRef,
+          source: "excel",
+          lastSyncedAt: new Date(),
+        },
+      });
+      apptCreated++;
+    }
   }
+
+  console.log(`  Appointments: ${apptCreated} created, ${apptUpdated} updated, ${apptSkippedWebhook} skipped (webhook/manual)`);
 
   console.log(`\nImport complete: ${created} created, ${updated} updated, ${contactCount} contacts, ${dealErrors} errors, ${appointmentDeals.length} appointments`);
   return { contacts: contactCount, deals: created + updated, skipped: 0, errors: dealErrors };
@@ -302,15 +397,35 @@ export async function importAfspraken(filePath: string): Promise<{ appointments:
 
       const herkomst = row["Herkomst (verplicht)"] ? String(row["Herkomst (verplicht)"]).trim() : deal.herkomst;
 
-      await prisma.appointment.create({
-        data: {
-          dealId: deal.id,
-          date,
-          scheduledAt: deal.dealCreatedAt,
-          channel: herkomst,
-          notes: title,
-        },
-      });
+      // Idempotent: upsert by externalRef so re-imports don't create duplicates,
+      // and leave webhook/manual rows untouched.
+      const refMin = new Date(date);
+      refMin.setSeconds(0, 0);
+      const { createHash } = await import("node:crypto");
+      const externalRef = createHash("sha1").update(`${deal.id}|${refMin.toISOString()}`).digest("hex");
+
+      const found = await prisma.appointment.findUnique({ where: { externalRef }, select: { id: true, source: true } });
+      if (found) {
+        if (found.source !== "webhook" && found.source !== "manual") {
+          await prisma.appointment.update({
+            where: { id: found.id },
+            data: { dealId: deal.id, date, scheduledAt: deal.dealCreatedAt, channel: herkomst, notes: title, source: "excel", lastSyncedAt: new Date() },
+          });
+        }
+      } else {
+        await prisma.appointment.create({
+          data: {
+            dealId: deal.id,
+            date,
+            scheduledAt: deal.dealCreatedAt,
+            channel: herkomst,
+            notes: title,
+            externalRef,
+            source: "excel",
+            lastSyncedAt: new Date(),
+          },
+        });
+      }
 
       appointments++;
       existingSet.add(dedupKey);

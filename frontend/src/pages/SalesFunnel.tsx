@@ -15,6 +15,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from "recharts";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { MetricLabel } from "@/components/ui/metric-label";
+import { DealsDrillModal, type DrillFilter } from "@/components/dashboard/DealsDrillModal";
+import { DrillableNumber } from "@/components/dashboard/DrillableNumber";
 
 const STAGE_COLORS = [
   { color: "#fb923c", dark: "#ea580c" },   // Lead
@@ -44,6 +48,7 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 export function SalesFunnelPage() {
   const { data, isLoading } = useSalesFunnel();
   const [selected, setSelected] = useState<string>("__all__");
+  const [drill, setDrill] = useState<DrillFilter | null>(null);
 
   const current: SalesFunnelPerson | undefined = useMemo(() => {
     if (!data) return undefined;
@@ -146,11 +151,18 @@ export function SalesFunnelPage() {
 
       {/* KPI strip — primary funnel counts */}
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-5">
-        <KpiCard title="Aantal deals" value={formatNumber(current.leads)} icon={<Users className="h-4 w-4" />} />
+        <KpiCard
+          title="Aantal deals"
+          value={formatNumber(current.leads)}
+          icon={<Users className="h-4 w-4" />}
+          onClick={() => setDrill({ verantwoordelijke: selected !== "__all__" ? selected : undefined, title: selected !== "__all__" ? `Leads — ${selected}` : "Alle leads", inheritGlobal: false })}
+          formula={{ label: "Aantal deals", description: "Alle leads die toegekend zijn aan de geselecteerde verkoper(s)" }}
+        />
         <KpiCard
           title="Afspraken"
           value={formatNumber(current.afspraken)}
           icon={<CalendarCheck className="h-4 w-4" />}
+          onClick={() => setDrill({ verantwoordelijke: selected !== "__all__" ? selected : undefined, status: "APPOINTMENT,WON,LOST", title: selected !== "__all__" ? `Afspraken — ${selected}` : "Alle afspraken", inheritGlobal: false })}
           formula={{
             label: "Afspraken gemaakt",
             description: "Leads waar minstens 1 (niet-geannuleerde) afspraak voor staat",
@@ -171,8 +183,16 @@ export function SalesFunnelPage() {
           title="Won Deals"
           value={formatNumber(current.won)}
           icon={<Trophy className="h-4 w-4" />}
+          onClick={() => setDrill({ verantwoordelijke: selected !== "__all__" ? selected : undefined, status: "WON", title: selected !== "__all__" ? `Won — ${selected}` : "Alle won deals", inheritGlobal: false })}
+          formula={{ label: "Won Deals", description: "Aantal effectief gewonnen deals" }}
         />
-        <KpiCard title="Omzet" value={formatCurrency(current.revenue)} icon={<Wallet className="h-4 w-4" />} />
+        <KpiCard
+          title="Omzet"
+          value={formatCurrency(current.revenue)}
+          icon={<Wallet className="h-4 w-4" />}
+          onClick={() => setDrill({ verantwoordelijke: selected !== "__all__" ? selected : undefined, status: "WON", title: selected !== "__all__" ? `Omzet — ${selected}` : "Omzet — Alle won deals", inheritGlobal: false })}
+          formula={{ label: "Omzet", description: "Som van alle gewonnen deals voor deze selectie" }}
+        />
       </div>
 
       {/* KPI strip — efficiency & per-unit revenue */}
@@ -254,7 +274,20 @@ export function SalesFunnelPage() {
                 }}
               />
               <div className="relative">
-                <SalesFunnelCone stages={stages} />
+                <SalesFunnelCone
+                  stages={stages}
+                  onStageClick={(i) => {
+                    const verant = selected !== "__all__" ? selected : undefined;
+                    const verantSuffix = verant ? ` — ${verant}` : "";
+                    if (i === 0) {
+                      setDrill({ verantwoordelijke: verant, title: `Leads${verantSuffix}`, inheritGlobal: false });
+                    } else if (i === 1) {
+                      setDrill({ verantwoordelijke: verant, status: "APPOINTMENT,WON,LOST", title: `Afspraken${verantSuffix}`, inheritGlobal: false });
+                    } else {
+                      setDrill({ verantwoordelijke: verant, status: "WON", title: `Won deals${verantSuffix}`, inheritGlobal: false });
+                    }
+                  }}
+                />
               </div>
             </div>
 
@@ -406,12 +439,17 @@ export function SalesFunnelPage() {
         </div>
       </div>
 
+      {drill && <DealsDrillModal filter={drill} onClose={() => setDrill(null)} />}
+
       {/* Comparison: stacked bars + radar */}
       {data.perPerson.length > 1 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           <Card className="lg:col-span-3">
             <CardHeader>
-              <CardTitle>Stages per verkoper</CardTitle>
+              <CardTitle className="flex items-center gap-1.5">
+                Stages per verkoper
+                <InfoTooltip text="Aantal Leads, Afspraken en Won deals per verkoper. Klik op een staaf voor de bijhorende deals." />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={320}>
@@ -421,9 +459,12 @@ export function SalesFunnelPage() {
                   <YAxis tick={{ fontSize: 11, fill: "#71717a" }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(240,131,0,0.04)" }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Leads" fill={STAGE_COLORS[0].color} radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="Afspraken" fill={STAGE_COLORS[1].color} radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="Won" fill={STAGE_COLORS[2].color} radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="Leads" fill={STAGE_COLORS[0].color} radius={[6, 6, 0, 0]} cursor="pointer"
+                    onClick={(d: any) => setDrill({ verantwoordelijke: d.name, title: `Leads — ${d.name}`, inheritGlobal: false })} />
+                  <Bar dataKey="Afspraken" fill={STAGE_COLORS[1].color} radius={[6, 6, 0, 0]} cursor="pointer"
+                    onClick={(d: any) => setDrill({ verantwoordelijke: d.name, status: "APPOINTMENT,WON,LOST", title: `Afspraken — ${d.name}`, inheritGlobal: false })} />
+                  <Bar dataKey="Won" fill={STAGE_COLORS[2].color} radius={[6, 6, 0, 0]} cursor="pointer"
+                    onClick={(d: any) => setDrill({ verantwoordelijke: d.name, status: "WON", title: `Won — ${d.name}`, inheritGlobal: false })} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -462,7 +503,10 @@ export function SalesFunnelPage() {
       {/* Leaderboard */}
       <Card>
         <CardHeader>
-          <CardTitle>Leaderboard verkopers</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+            Leaderboard verkopers
+            <InfoTooltip text="Klik op een rij om die verkoper te selecteren. Klik op een aantal (Deals, Afspraken, Won, Omzet) om de bijhorende deals te zien." />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -470,18 +514,18 @@ export function SalesFunnelPage() {
               <thead>
                 <tr className="border-b border-border/60">
                   <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">#</th>
-                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verkoper</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Deals</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Afspraken</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Offertes</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Won</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lead→Afspr.</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Off.→Won</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Win %</th>
+                  <th className="pb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Verantwoordelijke">Verkoper</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Deal">Deals</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Afspraak">Afspraken</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Offerte">Offertes</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><InfoTooltip code="Won">Won</InfoTooltip></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Lead → Afspraak" /></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Offerte → Won" /></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Win%" /></th>
                   <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Omzet</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gem. deal</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">€/afspraak</th>
-                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Cyclus</th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Gem.Omzet" /></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Omzet/Afspraak" /></th>
+                  <th className="pb-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"><MetricLabel code="Doorlooptijd" /></th>
                 </tr>
               </thead>
               <tbody>
@@ -519,10 +563,22 @@ export function SalesFunnelPage() {
                           <span className="font-medium text-foreground">{p.verantwoordelijke}</span>
                         </div>
                       </td>
-                      <td className="py-3.5 text-right tabular-nums">{formatNumber(p.leads)}</td>
-                      <td className="py-3.5 text-right tabular-nums text-blue-600">{formatNumber(p.afspraken)}</td>
+                      <td className="py-3.5 text-right tabular-nums" onClick={(e) => e.stopPropagation()}>
+                        <DrillableNumber filter={{ verantwoordelijke: p.verantwoordelijke, title: `Leads — ${p.verantwoordelijke}`, inheritGlobal: false }}>
+                          {formatNumber(p.leads)}
+                        </DrillableNumber>
+                      </td>
+                      <td className="py-3.5 text-right tabular-nums text-blue-600" onClick={(e) => e.stopPropagation()}>
+                        <DrillableNumber filter={{ verantwoordelijke: p.verantwoordelijke, status: "APPOINTMENT,WON,LOST", title: `Afspraken — ${p.verantwoordelijke}`, inheritGlobal: false }} className="text-blue-600">
+                          {formatNumber(p.afspraken)}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right tabular-nums text-violet-600">{formatNumber(p.offersSent)}</td>
-                      <td className="py-3.5 text-right tabular-nums font-semibold text-emerald-600">{formatNumber(p.won)}</td>
+                      <td className="py-3.5 text-right tabular-nums font-semibold text-emerald-600" onClick={(e) => e.stopPropagation()}>
+                        <DrillableNumber filter={{ verantwoordelijke: p.verantwoordelijke, status: "WON", title: `Won — ${p.verantwoordelijke}`, inheritGlobal: false }} className="text-emerald-600">
+                          {formatNumber(p.won)}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right">
                         <ConvBar value={p.leadToAfspraak} color="#3b82f6" />
                       </td>
@@ -532,7 +588,11 @@ export function SalesFunnelPage() {
                       <td className={cn("py-3.5 text-right font-semibold tabular-nums", winColor)}>
                         {formatPercent(p.leadToWon)}
                       </td>
-                      <td className="py-3.5 text-right font-semibold tabular-nums">{formatCurrency(p.revenue)}</td>
+                      <td className="py-3.5 text-right font-semibold tabular-nums" onClick={(e) => e.stopPropagation()}>
+                        <DrillableNumber filter={{ verantwoordelijke: p.verantwoordelijke, status: "WON", title: `Omzet — ${p.verantwoordelijke}`, inheritGlobal: false }}>
+                          {formatCurrency(p.revenue)}
+                        </DrillableNumber>
+                      </td>
                       <td className="py-3.5 text-right tabular-nums text-muted-foreground">
                         {p.avgDealValue > 0 ? formatCurrency(p.avgDealValue) : "—"}
                       </td>

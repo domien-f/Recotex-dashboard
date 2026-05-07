@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useAuthStore } from "@/store/authStore";
 import api from "@/lib/api";
 import { Upload, CheckCircle, XCircle, Loader2, FileSpreadsheet, AlertTriangle } from "lucide-react";
+import { DataFreshnessBanner } from "@/components/dashboard/DataFreshnessBanner";
 
 export function TeamleaderImportPage() {
   const { user } = useAuthStore();
@@ -94,8 +95,12 @@ export function TeamleaderImportPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Teamleader Import</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Upload een Teamleader Excel export om deals te importeren of bij te werken</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Upload een Teamleader Excel export voor de baseline. Daarna nemen webhooks het over.
+        </p>
       </div>
+
+      <DataFreshnessBanner />
 
       <Card>
         <CardHeader>

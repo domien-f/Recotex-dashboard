@@ -7,15 +7,17 @@ import { TrendingUp, TrendingDown } from "lucide-react";
 interface KpiCardProps {
   title: string;
   value: string;
+  /** Small line below the value — e.g. "8 van 12 doorgegaan". Plain text or React node. */
+  subtitle?: React.ReactNode;
   icon?: React.ReactNode;
   trend?: number;
   isEstimated?: boolean;
   className?: string;
   onClick?: () => void;
-  formula?: { label: string; description: string; formula: string };
+  formula?: { label: string; description: string; formula?: string };
 }
 
-export function KpiCard({ title, value, icon, trend, isEstimated, className, onClick, formula }: KpiCardProps) {
+export function KpiCard({ title, value, subtitle, icon, trend, isEstimated, className, onClick, formula }: KpiCardProps) {
   const [showTip, setShowTip] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const titleRef = useRef<HTMLParagraphElement>(null);
@@ -54,6 +56,10 @@ export function KpiCard({ title, value, icon, trend, isEstimated, className, onC
         {isEstimated && <Badge variant="estimated">Geschat</Badge>}
       </div>
 
+      {subtitle && (
+        <div className="mt-1.5 text-[11px] text-muted-foreground leading-snug">{subtitle}</div>
+      )}
+
       {trend !== undefined && (
         <div className="mt-3 flex items-center gap-1.5">
           <div
@@ -75,9 +81,9 @@ export function KpiCard({ title, value, icon, trend, isEstimated, className, onC
           className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-full pb-2"
         >
           <div className="rounded-lg border border-border/60 bg-white px-3 py-2 shadow-xl">
-            <div className="text-xs font-semibold text-foreground whitespace-nowrap">{formula.label}</div>
-            <div className="text-[11px] text-muted-foreground whitespace-nowrap">{formula.description}</div>
-            <div className="mt-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono text-foreground/70 whitespace-nowrap">{formula.formula}</div>
+            <div className="text-xs font-semibold text-foreground whitespace-normal">{formula.label}</div>
+            <div className="text-[11px] text-muted-foreground whitespace-normal">{formula.description}</div>
+            {formula.formula && <div className="mt-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono text-foreground/70 whitespace-normal">{formula.formula}</div>}
           </div>
         </div>,
         document.body
